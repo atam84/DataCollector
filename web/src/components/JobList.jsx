@@ -1,10 +1,17 @@
 import { useState } from 'react'
 import axios from 'axios'
+import IndicatorConfig from './IndicatorConfig'
 
 const API_BASE = '/api/v1'
 
 function JobList({ jobs, connectors, onRefresh, loading }) {
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showConfigModal, setShowConfigModal] = useState(false)
+  const [selectedJob, setSelectedJob] = useState(null)
+  const [indicatorConfig, setIndicatorConfig] = useState(null)
+  const [connectorConfig, setConnectorConfig] = useState(null)
+  const [loadingConfig, setLoadingConfig] = useState(false)
+  const [recalculatingJobs, setRecalculatingJobs] = useState(new Set())
   const [formData, setFormData] = useState({
     connector_exchange_id: '',
     symbol: 'BTC/USDT',
@@ -90,6 +97,62 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
   const getConnectorName = (exchangeId) => {
     const connector = connectors.find(c => c.exchange_id === exchangeId)
     return connector ? connector.display_name : exchangeId
+  }
+
+  const getConnector = (exchangeId) => {
+    return connectors.find(c => c.exchange_id === exchangeId)
+  }
+
+  const openConfigModal = async (job) => {
+    setSelectedJob(job)
+    setShowConfigModal(true)
+    setLoadingConfig(true)
+
+    try {
+      // Fetch job config
+      const jobResponse = await axios.get(`${API_BASE}/jobs/${job.id}/indicators/config`)
+      setIndicatorConfig(jobResponse.data.config || {})
+
+      // Fetch connector config for inheritance display
+      const connector = getConnector(job.connector_exchange_id)
+      if (connector) {
+        const connectorResponse = await axios.get(`${API_BASE}/connectors/${connector.id}/indicators/config`)
+        setConnectorConfig(connectorResponse.data.config || {})
+      }
+    } catch (err) {
+      alert('Failed to load indicator config: ' + (err.response?.data?.error || err.message))
+      setShowConfigModal(false)
+    } finally {
+      setLoadingConfig(false)
+    }
+  }
+
+  const saveIndicatorConfig = async (config) => {
+    try {
+      await axios.put(`${API_BASE}/jobs/${selectedJob.id}/indicators/config`, config)
+      alert('Indicator configuration saved successfully!')
+      setShowConfigModal(false)
+    } catch (err) {
+      alert('Failed to save indicator config: ' + (err.response?.data?.error || err.message))
+    }
+  }
+
+  const recalculateJob = async (jobId) => {
+    if (!confirm('Recalculate all indicators for this job? This may take a while.')) return
+
+    setRecalculatingJobs(prev => new Set(prev).add(jobId))
+    try {
+      await axios.post(`${API_BASE}/jobs/${jobId}/indicators/recalculate`)
+      alert('Indicators recalculated successfully!')
+    } catch (err) {
+      alert('Failed to recalculate: ' + (err.response?.data?.error || err.message))
+    } finally {
+      setRecalculatingJobs(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(jobId)
+        return newSet
+      })
+    }
   }
 
   return (
@@ -188,35 +251,52 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={() => executeJob(job.id)}
-                        className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                        disabled={executingJobs.has(job.id)}
-                      >
-                        {executingJobs.has(job.id) ? 'Running...' : 'Run Now'}
-                      </button>
-                      {job.status === 'active' ? (
+                    <div className="flex flex-col space-y-1">
+                      <div className="flex space-x-2">
                         <button
-                          onClick={() => pauseJob(job.id)}
-                          className="text-yellow-600 hover:text-yellow-900"
+                          onClick={() => executeJob(job.id)}
+                          className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed text-xs"
+                          disabled={executingJobs.has(job.id)}
                         >
-                          Pause
+                          {executingJobs.has(job.id) ? 'Running...' : 'Run Now'}
                         </button>
-                      ) : (
                         <button
-                          onClick={() => resumeJob(job.id)}
-                          className="text-green-600 hover:text-green-900"
+                          onClick={() => openConfigModal(job)}
+                          className="px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 transition text-xs"
                         >
-                          Resume
+                          ⚙️ Config
                         </button>
-                      )}
-                      <button
-                        onClick={() => deleteJob(job.id)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        Delete
-                      </button>
+                        <button
+                          onClick={() => recalculateJob(job.id)}
+                          className="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition disabled:opacity-50 text-xs"
+                          disabled={recalculatingJobs.has(job.id)}
+                        >
+                          {recalculatingJobs.has(job.id) ? '🔄...' : '🔄'}
+                        </button>
+                      </div>
+                      <div className="flex space-x-2">
+                        {job.status === 'active' ? (
+                          <button
+                            onClick={() => pauseJob(job.id)}
+                            className="text-yellow-600 hover:text-yellow-900 text-xs"
+                          >
+                            Pause
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => resumeJob(job.id)}
+                            className="text-green-600 hover:text-green-900 text-xs"
+                          >
+                            Resume
+                          </button>
+                        )}
+                        <button
+                          onClick={() => deleteJob(job.id)}
+                          className="text-red-600 hover:text-red-900 text-xs"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   </td>
                 </tr>
@@ -303,6 +383,50 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Indicator Config Modal */}
+      {showConfigModal && selectedJob && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Indicator Configuration</h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {selectedJob.symbol} - {selectedJob.timeframe} ({getConnectorName(selectedJob.connector_exchange_id)})
+                  </p>
+                  <p className="text-xs text-blue-600 mt-1">
+                    💡 Job-level config overrides connector defaults. Disabled items inherit from connector.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowConfigModal(false)}
+                  className="text-gray-400 hover:text-gray-600 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6">
+              {loadingConfig ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                  <p className="ml-3 text-gray-600">Loading configuration...</p>
+                </div>
+              ) : (
+                <IndicatorConfig
+                  config={indicatorConfig}
+                  onChange={setIndicatorConfig}
+                  onSave={saveIndicatorConfig}
+                  isJobLevel={true}
+                  connectorConfig={connectorConfig}
+                />
+              )}
+            </div>
           </div>
         </div>
       )}
