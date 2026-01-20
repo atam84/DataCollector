@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -34,7 +35,7 @@ func (h *IndicatorHandler) GetLatestIndicators(c *gin.Context) {
 	timeframe := c.Param("timeframe")
 
 	// Fetch OHLCV document
-	doc, err := h.ohlcvRepo.FindBySymbolTimeframe(c.Request.Context(), exchangeID, symbol, timeframe)
+	doc, err := h.ohlcvRepo.FindByJob(c.Request.Context(), exchangeID, symbol, timeframe)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -88,7 +89,7 @@ func (h *IndicatorHandler) GetIndicatorRange(c *gin.Context) {
 	}
 
 	// Fetch OHLCV document
-	doc, err := h.ohlcvRepo.FindBySymbolTimeframe(c.Request.Context(), exchangeID, symbol, timeframe)
+	doc, err := h.ohlcvRepo.FindByJob(c.Request.Context(), exchangeID, symbol, timeframe)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -151,7 +152,7 @@ func (h *IndicatorHandler) GetSpecificIndicator(c *gin.Context) {
 	}
 
 	// Fetch OHLCV document
-	doc, err := h.ohlcvRepo.FindBySymbolTimeframe(c.Request.Context(), exchangeID, symbol, timeframe)
+	doc, err := h.ohlcvRepo.FindByJob(c.Request.Context(), exchangeID, symbol, timeframe)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

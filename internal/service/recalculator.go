@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 
+	"go.mongodb.org/mongo-driver/bson"
+
 	"github.com/yourusername/datacollector/internal/models"
 	"github.com/yourusername/datacollector/internal/repository"
 	"github.com/yourusername/datacollector/internal/service/indicators"
@@ -50,7 +52,7 @@ func (r *RecalculatorService) RecalculateJob(ctx context.Context, jobID string) 
 	}
 
 	// Fetch all candles for this job
-	ohlcvDoc, err := r.ohlcvRepo.FindBySymbolTimeframe(ctx, connector.ExchangeID, job.Symbol, job.Timeframe)
+	ohlcvDoc, err := r.ohlcvRepo.FindByJob(ctx, connector.ExchangeID, job.Symbol, job.Timeframe)
 	if err != nil {
 		return fmt.Errorf("failed to fetch candles: %w", err)
 	}
@@ -93,18 +95,12 @@ func (r *RecalculatorService) RecalculateConnector(ctx context.Context, connecto
 	log.Printf("[RECALC] Starting recalculation for all jobs on connector %s", connectorExchangeID)
 
 	// Find all jobs for this connector
-	jobs, err := r.jobRepo.FindAll(ctx)
+	jobs, err := r.jobRepo.FindAll(ctx, bson.M{"connector_exchange_id": connectorExchangeID})
 	if err != nil {
 		return fmt.Errorf("failed to find jobs: %w", err)
 	}
 
-	// Filter jobs for this connector
-	connectorJobs := make([]models.Job, 0)
-	for _, job := range jobs {
-		if job.ConnectorExchangeID == connectorExchangeID {
-			connectorJobs = append(connectorJobs, job)
-		}
-	}
+	connectorJobs := jobs
 
 	if len(connectorJobs) == 0 {
 		log.Printf("[RECALC] No jobs found for connector %s", connectorExchangeID)
@@ -140,7 +136,7 @@ func (r *RecalculatorService) RecalculateAll(ctx context.Context) error {
 	log.Printf("[RECALC] Starting recalculation for ALL jobs")
 
 	// Find all jobs
-	jobs, err := r.jobRepo.FindAll(ctx)
+	jobs, err := r.jobRepo.FindAll(ctx, bson.M{})
 	if err != nil {
 		return fmt.Errorf("failed to find jobs: %w", err)
 	}
