@@ -132,10 +132,10 @@ func main() {
 	// Connector-specific job routes
 	api.Get("/connectors/:exchangeId/jobs", jobHandler.GetJobsByConnector)
 
-	// Indicator data retrieval routes (timeframe before symbol to avoid slash conflicts)
-	api.Get("/indicators/:exchange/:timeframe/:symbol+/latest", indicatorHandler.GetLatestIndicators)
-	api.Get("/indicators/:exchange/:timeframe/:symbol+/range", indicatorHandler.GetIndicatorRange)
-	api.Get("/indicators/:exchange/:timeframe/:symbol+/:indicator", indicatorHandler.GetSpecificIndicator)
+	// Indicator data retrieval routes (using query parameter for symbol to handle slashes)
+	api.Get("/indicators/:exchange/:timeframe/latest", indicatorHandler.GetLatestIndicators)
+	api.Get("/indicators/:exchange/:timeframe/range", indicatorHandler.GetIndicatorRange)
+	api.Get("/indicators/:exchange/:timeframe/:indicator", indicatorHandler.GetSpecificIndicator)
 
 	// Indicator recalculation routes
 	api.Post("/jobs/:id/indicators/recalculate", indicatorHandler.RecalculateJob)

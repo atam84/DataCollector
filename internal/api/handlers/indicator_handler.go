@@ -28,11 +28,15 @@ func NewIndicatorHandler(
 }
 
 // GetLatestIndicators retrieves the latest candle with indicators
-// GET /api/v1/indicators/:exchange/:timeframe/:symbol+/latest
+// GET /api/v1/indicators/:exchange/:timeframe/latest?symbol=ETH/USDT
 func (h *IndicatorHandler) GetLatestIndicators(c *fiber.Ctx) error {
 	exchangeID := c.Params("exchange")
 	timeframe := c.Params("timeframe")
-	symbol := c.Params("symbol+")
+	symbol := c.Query("symbol")
+
+	if symbol == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "symbol query parameter is required"})
+	}
 
 	// Fetch OHLCV document
 	doc, err := h.ohlcvRepo.FindByJob(c.Context(), exchangeID, symbol, timeframe)
@@ -64,11 +68,15 @@ func (h *IndicatorHandler) GetLatestIndicators(c *fiber.Ctx) error {
 }
 
 // GetIndicatorRange retrieves indicators for a range of candles
-// GET /api/v1/indicators/:exchange/:timeframe/:symbol+/range?limit=100&offset=0
+// GET /api/v1/indicators/:exchange/:timeframe/range?symbol=ETH/USDT&limit=100&offset=0
 func (h *IndicatorHandler) GetIndicatorRange(c *fiber.Ctx) error {
 	exchangeID := c.Params("exchange")
 	timeframe := c.Params("timeframe")
-	symbol := c.Params("symbol+")
+	symbol := c.Query("symbol")
+
+	if symbol == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "symbol query parameter is required"})
+	}
 
 	// Parse query parameters
 	limit := 100 // default
@@ -132,12 +140,16 @@ func (h *IndicatorHandler) GetIndicatorRange(c *fiber.Ctx) error {
 }
 
 // GetSpecificIndicator retrieves history of a specific indicator
-// GET /api/v1/indicators/:exchange/:timeframe/:symbol+/:indicator?limit=100
+// GET /api/v1/indicators/:exchange/:timeframe/:indicator?symbol=ETH/USDT&limit=100
 func (h *IndicatorHandler) GetSpecificIndicator(c *fiber.Ctx) error {
 	exchangeID := c.Params("exchange")
 	timeframe := c.Params("timeframe")
-	symbol := c.Params("symbol+")
 	indicatorName := c.Params("indicator")
+	symbol := c.Query("symbol")
+
+	if symbol == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "symbol query parameter is required"})
+	}
 
 	limit := 100
 	if limitStr := c.Query("limit"); limitStr != "" {
