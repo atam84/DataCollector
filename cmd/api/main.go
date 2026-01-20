@@ -93,6 +93,7 @@ func main() {
 	// Initialize services
 	jobExecutor := service.NewJobExecutor(jobRepo, connectorRepo, ohlcvRepo, cfg)
 	jobScheduler := service.NewJobScheduler(jobRepo, jobExecutor)
+	recalcService := service.NewRecalculatorService(jobRepo, connectorRepo, ohlcvRepo)
 
 	// Start automatic job scheduler
 	jobScheduler.Start()
@@ -102,6 +103,7 @@ func main() {
 	healthHandler := handlers.NewHealthHandler(db)
 	connectorHandler := handlers.NewConnectorHandler(connectorRepo, jobRepo, cfg)
 	jobHandler := handlers.NewJobHandler(jobRepo, connectorRepo, jobExecutor)
+	indicatorHandler := handlers.NewIndicatorHandler(ohlcvRepo, recalcService)
 
 	// Health routes
 	api.Get("/health", healthHandler.GetHealth)
@@ -129,6 +131,15 @@ func main() {
 
 	// Connector-specific job routes
 	api.Get("/connectors/:exchangeId/jobs", jobHandler.GetJobsByConnector)
+
+	// Indicator data retrieval routes
+	api.Get("/indicators/:exchange/:symbol/:timeframe/latest", indicatorHandler.GetLatestIndicators)
+	api.Get("/indicators/:exchange/:symbol/:timeframe/range", indicatorHandler.GetIndicatorRange)
+	api.Get("/indicators/:exchange/:symbol/:timeframe/:indicator", indicatorHandler.GetSpecificIndicator)
+
+	// Indicator recalculation routes
+	api.Post("/jobs/:id/indicators/recalculate", indicatorHandler.RecalculateJob)
+	api.Post("/connectors/:id/indicators/recalculate", indicatorHandler.RecalculateConnector)
 
 	// Start server
 	address := fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port)

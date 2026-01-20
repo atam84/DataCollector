@@ -2,9 +2,9 @@ package handlers
 
 import (
 	"fmt"
-	"net/http"
+	"strconv"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 	"github.com/yourusername/datacollector/internal/models"
 	"github.com/yourusername/datacollector/internal/repository"
 	"github.com/yourusername/datacollector/internal/service"
@@ -12,8 +12,8 @@ import (
 
 // IndicatorHandler handles indicator-related HTTP requests
 type IndicatorHandler struct {
-	ohlcvRepo        *repository.OHLCVRepository
-	recalcService    *service.RecalculatorService
+	ohlcvRepo     *repository.OHLCVRepository
+	recalcService *service.RecalculatorService
 }
 
 // NewIndicatorHandler creates a new indicator handler
@@ -22,39 +22,37 @@ func NewIndicatorHandler(
 	recalcService *service.RecalculatorService,
 ) *IndicatorHandler {
 	return &IndicatorHandler{
-		ohlcvRepo:        ohlcvRepo,
-		recalcService:    recalcService,
+		ohlcvRepo:     ohlcvRepo,
+		recalcService: recalcService,
 	}
 }
 
 // GetLatestIndicators retrieves the latest candle with indicators
 // GET /api/v1/indicators/:exchange/:symbol/:timeframe/latest
-func (h *IndicatorHandler) GetLatestIndicators(c *gin.Context) {
-	exchangeID := c.Param("exchange")
-	symbol := c.Param("symbol")
-	timeframe := c.Param("timeframe")
+func (h *IndicatorHandler) GetLatestIndicators(c *fiber.Ctx) error {
+	exchangeID := c.Params("exchange")
+	symbol := c.Params("symbol")
+	timeframe := c.Params("timeframe")
 
 	// Fetch OHLCV document
-	doc, err := h.ohlcvRepo.FindByJob(c.Request.Context(), exchangeID, symbol, timeframe)
+	doc, err := h.ohlcvRepo.FindByJob(c.Context(), exchangeID, symbol, timeframe)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	if doc == nil || len(doc.Candles) == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "No data found"})
-		return
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "No data found"})
 	}
 
 	// Return the latest candle (index 0)
 	latestCandle := doc.Candles[0]
 
-	c.JSON(http.StatusOK, gin.H{
-		"exchange":   exchangeID,
-		"symbol":     symbol,
-		"timeframe":  timeframe,
-		"timestamp":  latestCandle.Timestamp,
-		"ohlcv": gin.H{
+	return c.JSON(fiber.Map{
+		"exchange":  exchangeID,
+		"symbol":    symbol,
+		"timeframe": timeframe,
+		"timestamp": latestCandle.Timestamp,
+		"ohlcv": fiber.Map{
 			"open":   latestCandle.Open,
 			"high":   latestCandle.High,
 			"low":    latestCandle.Low,
@@ -67,37 +65,35 @@ func (h *IndicatorHandler) GetLatestIndicators(c *gin.Context) {
 
 // GetIndicatorRange retrieves indicators for a range of candles
 // GET /api/v1/indicators/:exchange/:symbol/:timeframe/range?limit=100&offset=0
-func (h *IndicatorHandler) GetIndicatorRange(c *gin.Context) {
-	exchangeID := c.Param("exchange")
-	symbol := c.Param("symbol")
-	timeframe := c.Param("timeframe")
+func (h *IndicatorHandler) GetIndicatorRange(c *fiber.Ctx) error {
+	exchangeID := c.Params("exchange")
+	symbol := c.Params("symbol")
+	timeframe := c.Params("timeframe")
 
 	// Parse query parameters
 	limit := 100 // default
 	offset := 0  // default
 
 	if limitStr := c.Query("limit"); limitStr != "" {
-		if l, err := parseIntParam(limitStr); err == nil && l > 0 && l <= 1000 {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 1000 {
 			limit = l
 		}
 	}
 
 	if offsetStr := c.Query("offset"); offsetStr != "" {
-		if o, err := parseIntParam(offsetStr); err == nil && o >= 0 {
+		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
 			offset = o
 		}
 	}
 
 	// Fetch OHLCV document
-	doc, err := h.ohlcvRepo.FindByJob(c.Request.Context(), exchangeID, symbol, timeframe)
+	doc, err := h.ohlcvRepo.FindByJob(c.Context(), exchangeID, symbol, timeframe)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	if doc == nil || len(doc.Candles) == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "No data found"})
-		return
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "No data found"})
 	}
 
 	// Apply offset and limit
@@ -105,7 +101,7 @@ func (h *IndicatorHandler) GetIndicatorRange(c *gin.Context) {
 	totalCandles := len(candles)
 
 	if offset >= totalCandles {
-		c.JSON(http.StatusOK, gin.H{
+		return c.JSON(fiber.Map{
 			"exchange":      exchangeID,
 			"symbol":        symbol,
 			"timeframe":     timeframe,
@@ -114,7 +110,6 @@ func (h *IndicatorHandler) GetIndicatorRange(c *gin.Context) {
 			"limit":         limit,
 			"candles":       []models.Candle{},
 		})
-		return
 	}
 
 	end := offset + limit
@@ -124,7 +119,7 @@ func (h *IndicatorHandler) GetIndicatorRange(c *gin.Context) {
 
 	selectedCandles := candles[offset:end]
 
-	c.JSON(http.StatusOK, gin.H{
+	return c.JSON(fiber.Map{
 		"exchange":      exchangeID,
 		"symbol":        symbol,
 		"timeframe":     timeframe,
@@ -138,33 +133,31 @@ func (h *IndicatorHandler) GetIndicatorRange(c *gin.Context) {
 
 // GetSpecificIndicator retrieves history of a specific indicator
 // GET /api/v1/indicators/:exchange/:symbol/:timeframe/:indicator?limit=100
-func (h *IndicatorHandler) GetSpecificIndicator(c *gin.Context) {
-	exchangeID := c.Param("exchange")
-	symbol := c.Param("symbol")
-	timeframe := c.Param("timeframe")
-	indicatorName := c.Param("indicator")
+func (h *IndicatorHandler) GetSpecificIndicator(c *fiber.Ctx) error {
+	exchangeID := c.Params("exchange")
+	symbol := c.Params("symbol")
+	timeframe := c.Params("timeframe")
+	indicatorName := c.Params("indicator")
 
 	limit := 100
 	if limitStr := c.Query("limit"); limitStr != "" {
-		if l, err := parseIntParam(limitStr); err == nil && l > 0 && l <= 1000 {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 1000 {
 			limit = l
 		}
 	}
 
 	// Fetch OHLCV document
-	doc, err := h.ohlcvRepo.FindByJob(c.Request.Context(), exchangeID, symbol, timeframe)
+	doc, err := h.ohlcvRepo.FindByJob(c.Context(), exchangeID, symbol, timeframe)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	if doc == nil || len(doc.Candles) == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "No data found"})
-		return
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "No data found"})
 	}
 
 	// Extract specific indicator values
-	result := make([]gin.H, 0)
+	result := make([]fiber.Map, 0)
 	count := 0
 
 	for _, candle := range doc.Candles {
@@ -174,7 +167,7 @@ func (h *IndicatorHandler) GetSpecificIndicator(c *gin.Context) {
 
 		value := extractIndicatorValue(candle.Indicators, indicatorName)
 		if value != nil {
-			result = append(result, gin.H{
+			result = append(result, fiber.Map{
 				"timestamp": candle.Timestamp,
 				"value":     value,
 			})
@@ -182,31 +175,30 @@ func (h *IndicatorHandler) GetSpecificIndicator(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"exchange":   exchangeID,
-		"symbol":     symbol,
-		"timeframe":  timeframe,
-		"indicator":  indicatorName,
+	return c.JSON(fiber.Map{
+		"exchange":    exchangeID,
+		"symbol":      symbol,
+		"timeframe":   timeframe,
+		"indicator":   indicatorName,
 		"data_points": len(result),
-		"data":       result,
+		"data":        result,
 	})
 }
 
 // RecalculateJob triggers recalculation for a specific job
 // POST /api/v1/jobs/:id/indicators/recalculate
-func (h *IndicatorHandler) RecalculateJob(c *gin.Context) {
-	jobID := c.Param("id")
+func (h *IndicatorHandler) RecalculateJob(c *fiber.Ctx) error {
+	jobID := c.Params("id")
 
-	err := h.recalcService.RecalculateJob(c.Request.Context(), jobID)
+	err := h.recalcService.RecalculateJob(c.Context(), jobID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error":   "Recalculation failed",
 			"message": err.Error(),
 		})
-		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	return c.JSON(fiber.Map{
 		"success": true,
 		"message": "Indicators recalculated successfully",
 		"job_id":  jobID,
@@ -215,19 +207,18 @@ func (h *IndicatorHandler) RecalculateJob(c *gin.Context) {
 
 // RecalculateConnector triggers recalculation for all jobs on a connector
 // POST /api/v1/connectors/:id/indicators/recalculate
-func (h *IndicatorHandler) RecalculateConnector(c *gin.Context) {
-	connectorID := c.Param("id")
+func (h *IndicatorHandler) RecalculateConnector(c *fiber.Ctx) error {
+	connectorID := c.Params("id")
 
-	err := h.recalcService.RecalculateConnector(c.Request.Context(), connectorID)
+	err := h.recalcService.RecalculateConnector(c.Context(), connectorID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error":   "Recalculation failed",
 			"message": err.Error(),
 		})
-		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	return c.JSON(fiber.Map{
 		"success":      true,
 		"message":      "Indicators recalculated successfully for all jobs",
 		"connector_id": connectorID,
