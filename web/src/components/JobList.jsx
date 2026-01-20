@@ -1,5 +1,14 @@
 import { useState } from 'react'
 import axios from 'axios'
+import {
+  Cog6ToothIcon,
+  ArrowPathIcon,
+  PauseIcon,
+  PlayIcon,
+  TrashIcon,
+  PlusIcon,
+  BoltIcon
+} from '@heroicons/react/24/outline'
 import IndicatorConfig from './IndicatorConfig'
 
 const API_BASE = '/api/v1'
@@ -161,10 +170,11 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
         <h2 className="text-2xl font-bold text-gray-900">Jobs</h2>
         <button
           onClick={() => setShowCreateModal(true)}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition flex items-center space-x-2"
           disabled={connectors.length === 0}
         >
-          + New Job
+          <PlusIcon className="w-5 h-5" />
+          <span>New Job</span>
         </button>
       </div>
 
@@ -255,46 +265,52 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
                       <div className="flex space-x-2">
                         <button
                           onClick={() => executeJob(job.id)}
-                          className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed text-xs"
+                          className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed text-xs flex items-center"
                           disabled={executingJobs.has(job.id)}
                         >
-                          {executingJobs.has(job.id) ? 'Running...' : 'Run Now'}
+                          <BoltIcon className="w-3 h-3 mr-1" />
+                          <span>{executingJobs.has(job.id) ? 'Running...' : 'Run'}</span>
                         </button>
                         <button
                           onClick={() => openConfigModal(job)}
-                          className="px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 transition text-xs"
+                          className="px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 transition text-xs flex items-center"
                         >
-                          ⚙️ Config
+                          <Cog6ToothIcon className="w-3 h-3 mr-1" />
+                          <span>Config</span>
                         </button>
                         <button
                           onClick={() => recalculateJob(job.id)}
-                          className="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition disabled:opacity-50 text-xs"
+                          className="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition disabled:opacity-50 text-xs flex items-center"
                           disabled={recalculatingJobs.has(job.id)}
+                          title="Recalculate indicators"
                         >
-                          {recalculatingJobs.has(job.id) ? '🔄...' : '🔄'}
+                          <ArrowPathIcon className={`w-3 h-3 ${recalculatingJobs.has(job.id) ? 'animate-spin' : ''}`} />
                         </button>
                       </div>
                       <div className="flex space-x-2">
                         {job.status === 'active' ? (
                           <button
                             onClick={() => pauseJob(job.id)}
-                            className="text-yellow-600 hover:text-yellow-900 text-xs"
+                            className="text-yellow-600 hover:text-yellow-900 text-xs flex items-center"
                           >
-                            Pause
+                            <PauseIcon className="w-3 h-3 mr-1" />
+                            <span>Pause</span>
                           </button>
                         ) : (
                           <button
                             onClick={() => resumeJob(job.id)}
-                            className="text-green-600 hover:text-green-900 text-xs"
+                            className="text-green-600 hover:text-green-900 text-xs flex items-center"
                           >
-                            Resume
+                            <PlayIcon className="w-3 h-3 mr-1" />
+                            <span>Resume</span>
                           </button>
                         )}
                         <button
                           onClick={() => deleteJob(job.id)}
-                          className="text-red-600 hover:text-red-900 text-xs"
+                          className="text-red-600 hover:text-red-900 text-xs flex items-center"
                         >
-                          Delete
+                          <TrashIcon className="w-3 h-3 mr-1" />
+                          <span>Delete</span>
                         </button>
                       </div>
                     </div>
