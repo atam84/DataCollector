@@ -377,3 +377,105 @@ func (h *JobHandler) GetQueue(c *fiber.Ctx) error {
 		"count": len(queuedJobs),
 	})
 }
+
+// GetIndicatorConfig retrieves the indicator configuration for a job
+// GET /api/v1/jobs/:id/indicators/config
+func (h *JobHandler) GetIndicatorConfig(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	id := c.Params("id")
+
+	job, err := h.repo.FindByID(ctx, id)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Job not found",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"job_id": id,
+		"config": job.IndicatorConfig,
+	})
+}
+
+// UpdateIndicatorConfig updates the indicator configuration for a job
+// PUT /api/v1/jobs/:id/indicators/config
+func (h *JobHandler) UpdateIndicatorConfig(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	id := c.Params("id")
+
+	var config models.IndicatorConfig
+	if err := c.BodyParser(&config); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	// Update the job's indicator config
+	update := bson.M{
+		"indicator_config": config,
+	}
+
+	if err := h.repo.Update(ctx, id, update); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update indicator configuration",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Indicator configuration updated successfully",
+		"job_id":  id,
+		"config":  config,
+	})
+}
+
+// PatchIndicatorConfig partially updates the indicator configuration for a job
+// PATCH /api/v1/jobs/:id/indicators/config
+func (h *JobHandler) PatchIndicatorConfig(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	id := c.Params("id")
+
+	// Get current job
+	job, err := h.repo.FindByID(ctx, id)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Job not found",
+		})
+	}
+
+	// Parse partial update
+	var partialConfig map[string]interface{}
+	if err := c.BodyParser(&partialConfig); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	// Build update with dot notation for nested fields
+	update := bson.M{}
+	for key, value := range partialConfig {
+		update["indicator_config."+key] = value
+	}
+
+	if err := h.repo.Update(ctx, id, update); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update indicator configuration",
+		})
+	}
+
+	// Fetch updated job
+	job, _ = h.repo.FindByID(ctx, id)
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Indicator configuration updated successfully",
+		"job_id":  id,
+		"config":  job.IndicatorConfig,
+	})
+}

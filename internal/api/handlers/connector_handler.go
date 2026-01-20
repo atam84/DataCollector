@@ -368,3 +368,106 @@ func (h *ConnectorHandler) ResumeConnector(c *fiber.Ctx) error {
 		"connector": response,
 	})
 }
+
+// GetIndicatorConfig retrieves the indicator configuration for a connector
+// GET /api/v1/connectors/:id/indicators/config
+func (h *ConnectorHandler) GetIndicatorConfig(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	id := c.Params("id")
+
+	connector, err := h.repo.FindByID(ctx, id)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Connector not found",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"connector_id": id,
+		"config":       connector.IndicatorConfig,
+	})
+}
+
+// UpdateIndicatorConfig updates the indicator configuration for a connector
+// PUT /api/v1/connectors/:id/indicators/config
+func (h *ConnectorHandler) UpdateIndicatorConfig(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	id := c.Params("id")
+
+	var config models.IndicatorConfig
+	if err := c.BodyParser(&config); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	// Update the connector's indicator config
+	update := bson.M{
+		"indicator_config": config,
+		"updated_at":       time.Now(),
+	}
+
+	if err := h.repo.Update(ctx, id, update); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update indicator configuration",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"success":      true,
+		"message":      "Indicator configuration updated successfully",
+		"connector_id": id,
+		"config":       config,
+	})
+}
+
+// PatchIndicatorConfig partially updates the indicator configuration for a connector
+// PATCH /api/v1/connectors/:id/indicators/config
+func (h *ConnectorHandler) PatchIndicatorConfig(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	id := c.Params("id")
+
+	// Get current connector
+	connector, err := h.repo.FindByID(ctx, id)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Connector not found",
+		})
+	}
+
+	// Parse partial update
+	var partialConfig map[string]interface{}
+	if err := c.BodyParser(&partialConfig); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	// Build update with dot notation for nested fields
+	update := bson.M{"updated_at": time.Now()}
+	for key, value := range partialConfig {
+		update["indicator_config."+key] = value
+	}
+
+	if err := h.repo.Update(ctx, id, update); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update indicator configuration",
+		})
+	}
+
+	// Fetch updated connector
+	connector, _ = h.repo.FindByID(ctx, id)
+
+	return c.JSON(fiber.Map{
+		"success":      true,
+		"message":      "Indicator configuration updated successfully",
+		"connector_id": id,
+		"config":       connector.IndicatorConfig,
+	})
+}

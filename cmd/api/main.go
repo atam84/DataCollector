@@ -118,6 +118,11 @@ func main() {
 	api.Post("/connectors/:id/suspend", connectorHandler.SuspendConnector)
 	api.Post("/connectors/:id/resume", connectorHandler.ResumeConnector)
 
+	// Connector indicator configuration routes
+	api.Get("/connectors/:id/indicators/config", connectorHandler.GetIndicatorConfig)
+	api.Put("/connectors/:id/indicators/config", connectorHandler.UpdateIndicatorConfig)
+	api.Patch("/connectors/:id/indicators/config", connectorHandler.PatchIndicatorConfig)
+
 	// Job routes (queue route MUST come before :id routes)
 	api.Post("/jobs", jobHandler.CreateJob)
 	api.Get("/jobs", jobHandler.GetJobs)
@@ -128,6 +133,11 @@ func main() {
 	api.Post("/jobs/:id/pause", jobHandler.PauseJob)
 	api.Post("/jobs/:id/resume", jobHandler.ResumeJob)
 	api.Post("/jobs/:id/execute", jobHandler.ExecuteJob)
+
+	// Job indicator configuration routes
+	api.Get("/jobs/:id/indicators/config", jobHandler.GetIndicatorConfig)
+	api.Put("/jobs/:id/indicators/config", jobHandler.UpdateIndicatorConfig)
+	api.Patch("/jobs/:id/indicators/config", jobHandler.PatchIndicatorConfig)
 
 	// Connector-specific job routes
 	api.Get("/connectors/:exchangeId/jobs", jobHandler.GetJobsByConnector)
