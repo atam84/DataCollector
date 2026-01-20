@@ -16,7 +16,6 @@ func CalculateHMA(candles []models.Candle, period int, source string) []float64 
 	}
 
 	result := nanSlice(n)
-	prices := extractPrices(candles, source)
 
 	halfPeriod := period / 2
 	sqrtPeriod := int(math.Sqrt(float64(period)))
