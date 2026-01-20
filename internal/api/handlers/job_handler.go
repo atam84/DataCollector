@@ -386,7 +386,7 @@ func (h *JobHandler) GetIndicatorConfig(c *fiber.Ctx) error {
 
 	id := c.Params("id")
 
-	job, err := h.repo.FindByID(ctx, id)
+	job, err := h.jobRepo.FindByID(ctx, id)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "Job not found",
@@ -419,7 +419,7 @@ func (h *JobHandler) UpdateIndicatorConfig(c *fiber.Ctx) error {
 		"indicator_config": config,
 	}
 
-	if err := h.repo.Update(ctx, id, update); err != nil {
+	if err := h.jobRepo.Update(ctx, id, update); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to update indicator configuration",
 		})
@@ -442,7 +442,7 @@ func (h *JobHandler) PatchIndicatorConfig(c *fiber.Ctx) error {
 	id := c.Params("id")
 
 	// Get current job
-	job, err := h.repo.FindByID(ctx, id)
+	job, err := h.jobRepo.FindByID(ctx, id)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "Job not found",
@@ -463,7 +463,7 @@ func (h *JobHandler) PatchIndicatorConfig(c *fiber.Ctx) error {
 		update["indicator_config."+key] = value
 	}
 
-	if err := h.repo.Update(ctx, id, update); err != nil {
+	if err := h.jobRepo.Update(ctx, id, update); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to update indicator configuration",
 		})
