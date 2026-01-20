@@ -12,6 +12,7 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
     status: 'active'
   })
   const [submitting, setSubmitting] = useState(false)
+  const [executingJobs, setExecutingJobs] = useState(new Set())
 
   const handleCreate = async (e) => {
     e.preventDefault()
@@ -59,6 +60,30 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
       onRefresh()
     } catch (err) {
       alert('Failed to delete job: ' + (err.response?.data?.error || err.message))
+    }
+  }
+
+  const executeJob = async (id) => {
+    setExecutingJobs(prev => new Set(prev).add(id))
+    try {
+      const response = await axios.post(`${API_BASE}/jobs/${id}/execute`)
+      const result = response.data
+
+      if (result.success) {
+        alert(`Job executed successfully!\nRecords fetched: ${result.records_fetched}\nExecution time: ${result.execution_time_ms}ms`)
+      } else {
+        alert(`Job execution failed: ${result.error || result.message}`)
+      }
+
+      onRefresh()
+    } catch (err) {
+      alert('Failed to execute job: ' + (err.response?.data?.error || err.message))
+    } finally {
+      setExecutingJobs(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(id)
+        return newSet
+      })
     }
   }
 
@@ -164,6 +189,13 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <div className="flex space-x-2">
+                      <button
+                        onClick={() => executeJob(job.id)}
+                        className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={executingJobs.has(job.id)}
+                      >
+                        {executingJobs.has(job.id) ? 'Running...' : 'Run Now'}
+                      </button>
                       {job.status === 'active' ? (
                         <button
                           onClick={() => pauseJob(job.id)}

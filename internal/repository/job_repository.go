@@ -240,35 +240,44 @@ func (r *JobRepository) RecordRun(ctx context.Context, id string, success bool, 
 
 	now := time.Now()
 
-	update := bson.M{
-		"run_state.last_run_time":  now,
-		"run_state.locked_until":   nil,
-		"updated_at":               now,
-		"$inc": bson.M{"run_state.runs_total": 1},
+	setFields := bson.M{
+		"run_state.last_run_time": now,
+		"run_state.locked_until":  nil,
+		"updated_at":              now,
 	}
 
 	if nextRunTime != nil {
-		update["run_state.next_run_time"] = *nextRunTime
+		setFields["run_state.next_run_time"] = *nextRunTime
 	}
 
 	if errorMsg != nil {
-		update["run_state.last_error"] = *errorMsg
+		setFields["run_state.last_error"] = *errorMsg
 		if !success {
-			update["status"] = "error"
+			setFields["status"] = "error"
 		}
 	} else {
-		update["run_state.last_error"] = nil
+		setFields["run_state.last_error"] = nil
 	}
+
+	update := bson.M{
+		"$set": setFields,
+		"$inc": bson.M{"run_state.runs_total": 1},
+	}
+
+	fmt.Printf("[DEBUG] RecordRun for job %s: update=%+v\n", id, update)
 
 	result, err := r.collection.UpdateOne(
 		ctx,
 		bson.M{"_id": objectID},
-		bson.M{"$set": update},
+		update,
 	)
 
 	if err != nil {
+		fmt.Printf("[DEBUG] RecordRun error: %v\n", err)
 		return fmt.Errorf("failed to record run: %w", err)
 	}
+
+	fmt.Printf("[DEBUG] RecordRun result: matched=%d, modified=%d\n", result.MatchedCount, result.ModifiedCount)
 
 	if result.MatchedCount == 0 {
 		return fmt.Errorf("job not found")
@@ -294,4 +303,72 @@ func (r *JobRepository) Delete(ctx context.Context, id string) error {
 	}
 
 	return nil
+}
+
+// CountByConnector counts jobs for a specific connector
+func (r *JobRepository) CountByConnector(ctx context.Context, exchangeID string) (int64, error) {
+	filter := bson.M{"connector_exchange_id": exchangeID}
+	count, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count jobs: %w", err)
+	}
+	return count, nil
+}
+
+// CountActiveByConnector counts active jobs for a specific connector
+func (r *JobRepository) CountActiveByConnector(ctx context.Context, exchangeID string) (int64, error) {
+	filter := bson.M{
+		"connector_exchange_id": exchangeID,
+		"status":                "active",
+	}
+	count, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count active jobs: %w", err)
+	}
+	return count, nil
+}
+
+// UpdateStatusByConnector updates status for all jobs of a connector
+func (r *JobRepository) UpdateStatusByConnector(ctx context.Context, exchangeID string, status string) error {
+	filter := bson.M{"connector_exchange_id": exchangeID}
+	update := bson.M{
+		"$set": bson.M{
+			"status":     status,
+			"updated_at": time.Now(),
+		},
+	}
+
+	_, err := r.collection.UpdateMany(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("failed to update jobs status: %w", err)
+	}
+
+	return nil
+}
+
+// FixMissingNextRunTime sets next_run_time for jobs that don't have it
+func (r *JobRepository) FixMissingNextRunTime(ctx context.Context) (int64, error) {
+	filter := bson.M{
+		"status": "active",
+		"$or": []bson.M{
+			{"run_state.next_run_time": nil},
+			{"run_state.next_run_time": bson.M{"$exists": false}},
+		},
+	}
+
+	nextRunTime := time.Now().Add(1 * time.Minute)
+
+	update := bson.M{
+		"$set": bson.M{
+			"run_state.next_run_time": nextRunTime,
+			"updated_at":              time.Now(),
+		},
+	}
+
+	result, err := r.collection.UpdateMany(ctx, filter, update)
+	if err != nil {
+		return 0, fmt.Errorf("failed to fix jobs: %w", err)
+	}
+
+	return result.ModifiedCount, nil
 }

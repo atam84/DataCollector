@@ -93,7 +93,7 @@ function Dashboard({ connectors, jobs, onRefresh }) {
       {/* Recent Activity */}
       <div className="bg-white rounded-lg shadow">
         <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">Quick Overview</h3>
+          <h3 className="text-lg font-semibold text-gray-900">Connector Details - Quick Overview</h3>
         </div>
         <div className="p-6">
           <div className="space-y-4">
@@ -103,28 +103,69 @@ function Dashboard({ connectors, jobs, onRefresh }) {
               </p>
             ) : (
               <>
-                {connectors.slice(0, 3).map(connector => (
-                  <div key={connector.id} className="flex items-center justify-between border-b border-gray-100 pb-3">
-                    <div>
-                      <p className="font-medium text-gray-900">{connector.display_name}</p>
-                      <p className="text-sm text-gray-500">{connector.exchange_id}</p>
+                {connectors.slice(0, 5).map(connector => {
+                  const connectorJobs = jobs.filter(j => j.connector_exchange_id === connector.exchange_id)
+                  const activeJobs = connectorJobs.filter(j => j.status === 'active').length
+                  const lastRun = connectorJobs
+                    .map(j => j.run_state?.last_run_time)
+                    .filter(Boolean)
+                    .sort((a, b) => new Date(b) - new Date(a))[0]
+                  const rateLimitUsage = connector.rate_limit?.limit
+                    ? ((connector.rate_limit.usage || 0) / connector.rate_limit.limit * 100).toFixed(1)
+                    : 0
+
+                  return (
+                    <div key={connector.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <p className="font-medium text-gray-900">{connector.display_name}</p>
+                          <p className="text-sm text-gray-500">{connector.exchange_id}</p>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          {connector.sandbox_mode && (
+                            <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded">
+                              Sandbox
+                            </span>
+                          )}
+                          <span className={`px-2 py-1 text-xs font-medium rounded ${
+                            connector.status === 'active'
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {connector.status}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-4 text-sm">
+                        <div>
+                          <p className="text-gray-500">Active Jobs</p>
+                          <p className="font-semibold text-gray-900">{activeJobs} / {connectorJobs.length}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500">Last Execution</p>
+                          <p className="font-semibold text-gray-900">
+                            {lastRun ? new Date(lastRun).toLocaleDateString() : 'Never'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500">Rate Limit Usage</p>
+                          <div className="flex items-center space-x-2">
+                            <div className="flex-1 bg-gray-200 rounded-full h-2">
+                              <div
+                                className={`h-2 rounded-full ${
+                                  rateLimitUsage > 80 ? 'bg-red-500' : rateLimitUsage > 50 ? 'bg-yellow-500' : 'bg-green-500'
+                                }`}
+                                style={{ width: `${rateLimitUsage}%` }}
+                              />
+                            </div>
+                            <span className="text-xs font-medium">{rateLimitUsage}%</span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      {connector.sandbox_mode && (
-                        <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded">
-                          Sandbox
-                        </span>
-                      )}
-                      <span className={`px-2 py-1 text-xs font-medium rounded ${
-                        connector.status === 'active'
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {connector.status}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </>
             )}
           </div>

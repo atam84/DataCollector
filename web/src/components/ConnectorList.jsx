@@ -58,6 +58,31 @@ function ConnectorList({ connectors, onRefresh, loading }) {
     }
   }
 
+  const suspendConnector = async (id) => {
+    try {
+      await axios.post(`${API_BASE}/connectors/${id}/suspend`)
+      onRefresh()
+    } catch (err) {
+      alert('Failed to suspend connector: ' + (err.response?.data?.error || err.message))
+    }
+  }
+
+  const resumeConnector = async (id) => {
+    try {
+      await axios.post(`${API_BASE}/connectors/${id}/resume`)
+      onRefresh()
+    } catch (err) {
+      alert('Failed to resume connector: ' + (err.response?.data?.error || err.message))
+    }
+  }
+
+  const calculateRateLimitUsage = (rateLimit) => {
+    if (!rateLimit || !rateLimit.limit) return 0
+    const available = rateLimit.available_tokens || rateLimit.limit - (rateLimit.usage || 0)
+    const used = rateLimit.limit - available
+    return (used / rateLimit.limit) * 100
+  }
+
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -129,19 +154,56 @@ function ConnectorList({ connectors, onRefresh, loading }) {
                 </div>
               </div>
 
-              {/* Rate Limit Info */}
+              {/* Rate Limit Progress Bar */}
               <div className="mb-4">
-                <p className="text-xs text-gray-600">
-                  Rate Limit: {connector.rate_limit?.limit || 'N/A'} req /
-                  {connector.rate_limit?.period_ms ? ` ${connector.rate_limit.period_ms / 1000}s` : ' N/A'}
+                <div className="flex justify-between items-center mb-1">
+                  <p className="text-xs font-medium text-gray-700">Rate Limit Usage</p>
+                  <p className="text-xs text-gray-600">
+                    {connector.rate_limit?.limit - (connector.rate_limit?.usage || 0)} / {connector.rate_limit?.limit || 0}
+                  </p>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className={`h-2 rounded-full transition-all ${
+                      calculateRateLimitUsage(connector.rate_limit) > 80
+                        ? 'bg-red-500'
+                        : calculateRateLimitUsage(connector.rate_limit) > 50
+                        ? 'bg-yellow-500'
+                        : 'bg-green-500'
+                    }`}
+                    style={{ width: `${calculateRateLimitUsage(connector.rate_limit)}%` }}
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  {calculateRateLimitUsage(connector.rate_limit).toFixed(1)}% used
                 </p>
-                <p className="text-xs text-gray-600">
-                  Available: {connector.rate_limit?.available_tokens || 0}
-                </p>
+              </div>
+
+              {/* Job Count */}
+              <div className="mb-4 flex items-center justify-between p-2 bg-blue-50 rounded">
+                <span className="text-xs font-medium text-gray-700">Jobs Attached</span>
+                <span className="px-2 py-1 text-xs font-bold bg-blue-500 text-white rounded">
+                  {connector.job_count || 0}
+                </span>
               </div>
 
               {/* Actions */}
               <div className="flex space-x-2">
+                {connector.status === 'active' ? (
+                  <button
+                    onClick={() => suspendConnector(connector.id)}
+                    className="flex-1 px-3 py-2 bg-yellow-500 text-white text-sm rounded hover:bg-yellow-600 transition"
+                  >
+                    Suspend
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => resumeConnector(connector.id)}
+                    className="flex-1 px-3 py-2 bg-green-500 text-white text-sm rounded hover:bg-green-600 transition"
+                  >
+                    Resume
+                  </button>
+                )}
                 <button
                   onClick={() => deleteConnector(connector.id)}
                   className="flex-1 px-3 py-2 bg-red-500 text-white text-sm rounded hover:bg-red-600 transition"

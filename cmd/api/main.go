@@ -17,6 +17,7 @@ import (
 	"github.com/yourusername/datacollector/internal/api/handlers"
 	"github.com/yourusername/datacollector/internal/config"
 	"github.com/yourusername/datacollector/internal/repository"
+	"github.com/yourusername/datacollector/internal/service"
 )
 
 func main() {
@@ -34,6 +35,17 @@ func main() {
 	defer db.Close()
 
 	log.Println("Connected to MongoDB successfully")
+
+	// Fix existing jobs that don't have next_run_time set
+	jobRepoForFix := repository.NewJobRepository(db)
+	fixCtx, fixCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer fixCancel()
+	fixedCount, err := jobRepoForFix.FixMissingNextRunTime(fixCtx)
+	if err != nil {
+		log.Printf("Warning: Failed to fix jobs: %v", err)
+	} else if fixedCount > 0 {
+		log.Printf("Fixed %d jobs with missing next_run_time", fixedCount)
+	}
 
 	// Initialize Fiber app
 	app := fiber.New(fiber.Config{
@@ -76,11 +88,20 @@ func main() {
 	// Initialize repositories
 	connectorRepo := repository.NewConnectorRepository(db)
 	jobRepo := repository.NewJobRepository(db)
+	ohlcvRepo := repository.NewOHLCVRepository(db)
+
+	// Initialize services
+	jobExecutor := service.NewJobExecutor(jobRepo, connectorRepo, ohlcvRepo, cfg)
+	jobScheduler := service.NewJobScheduler(jobRepo, jobExecutor)
+
+	// Start automatic job scheduler
+	jobScheduler.Start()
+	defer jobScheduler.Stop()
 
 	// Initialize handlers
 	healthHandler := handlers.NewHealthHandler(db)
-	connectorHandler := handlers.NewConnectorHandler(connectorRepo, cfg)
-	jobHandler := handlers.NewJobHandler(jobRepo, connectorRepo)
+	connectorHandler := handlers.NewConnectorHandler(connectorRepo, jobRepo, cfg)
+	jobHandler := handlers.NewJobHandler(jobRepo, connectorRepo, jobExecutor)
 
 	// Health routes
 	api.Get("/health", healthHandler.GetHealth)
@@ -92,15 +113,19 @@ func main() {
 	api.Put("/connectors/:id", connectorHandler.UpdateConnector)
 	api.Delete("/connectors/:id", connectorHandler.DeleteConnector)
 	api.Patch("/connectors/:id/sandbox", connectorHandler.ToggleSandboxMode)
+	api.Post("/connectors/:id/suspend", connectorHandler.SuspendConnector)
+	api.Post("/connectors/:id/resume", connectorHandler.ResumeConnector)
 
-	// Job routes
+	// Job routes (queue route MUST come before :id routes)
 	api.Post("/jobs", jobHandler.CreateJob)
 	api.Get("/jobs", jobHandler.GetJobs)
+	api.Get("/jobs/queue", jobHandler.GetQueue)
 	api.Get("/jobs/:id", jobHandler.GetJob)
 	api.Put("/jobs/:id", jobHandler.UpdateJob)
 	api.Delete("/jobs/:id", jobHandler.DeleteJob)
 	api.Post("/jobs/:id/pause", jobHandler.PauseJob)
 	api.Post("/jobs/:id/resume", jobHandler.ResumeJob)
+	api.Post("/jobs/:id/execute", jobHandler.ExecuteJob)
 
 	// Connector-specific job routes
 	api.Get("/connectors/:exchangeId/jobs", jobHandler.GetJobsByConnector)

@@ -58,3 +58,11 @@ type ConnectorUpdateRequest struct {
 		PeriodMs *int `json:"period_ms,omitempty" validate:"omitempty,min=1000"`
 	} `json:"rate_limit,omitempty"`
 }
+
+// ConnectorResponse is the enhanced DTO with additional computed fields
+type ConnectorResponse struct {
+	Connector
+	JobCount       int64  `json:"job_count"`
+	ActiveJobCount int64  `json:"active_job_count"`
+	LastExecution  *int64 `json:"last_execution,omitempty"`
+}

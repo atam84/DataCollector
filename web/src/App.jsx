@@ -3,6 +3,7 @@ import axios from 'axios'
 import ConnectorList from './components/ConnectorList'
 import JobList from './components/JobList'
 import Dashboard from './components/Dashboard'
+import JobQueue from './components/JobQueue'
 
 const API_BASE = '/api/v1'
 
@@ -89,6 +90,16 @@ function App() {
             >
               Jobs
             </button>
+            <button
+              onClick={() => setActiveTab('queue')}
+              className={`${
+                activeTab === 'queue'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+            >
+              Queue
+            </button>
           </nav>
         </div>
 
@@ -124,6 +135,11 @@ function App() {
               connectors={connectors}
               onRefresh={fetchJobs}
               loading={loading}
+            />
+          )}
+          {activeTab === 'queue' && (
+            <JobQueue
+              connectors={connectors}
             />
           )}
         </div>

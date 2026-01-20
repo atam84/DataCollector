@@ -9,19 +9,22 @@ import (
 
 	"github.com/yourusername/datacollector/internal/models"
 	"github.com/yourusername/datacollector/internal/repository"
+	"github.com/yourusername/datacollector/internal/service"
 )
 
 // JobHandler handles job-related endpoints
 type JobHandler struct {
 	jobRepo       *repository.JobRepository
 	connectorRepo *repository.ConnectorRepository
+	jobExecutor   *service.JobExecutor
 }
 
 // NewJobHandler creates a new job handler
-func NewJobHandler(jobRepo *repository.JobRepository, connectorRepo *repository.ConnectorRepository) *JobHandler {
+func NewJobHandler(jobRepo *repository.JobRepository, connectorRepo *repository.ConnectorRepository, jobExecutor *service.JobExecutor) *JobHandler {
 	return &JobHandler{
 		jobRepo:       jobRepo,
 		connectorRepo: connectorRepo,
+		jobExecutor:   jobExecutor,
 	}
 }
 
@@ -59,6 +62,9 @@ func (h *JobHandler) CreateJob(c *fiber.Ctx) error {
 		status = "active"
 	}
 
+	// Calculate initial next run time
+	nextRunTime := time.Now().Add(1 * time.Minute) // Start in 1 minute
+
 	job := &models.Job{
 		ConnectorExchangeID: req.ConnectorExchangeID,
 		Symbol:              req.Symbol,
@@ -66,6 +72,9 @@ func (h *JobHandler) CreateJob(c *fiber.Ctx) error {
 		Status:              status,
 		Schedule: models.Schedule{
 			Mode: "timeframe",
+		},
+		RunState: models.RunState{
+			NextRunTime: &nextRunTime,
 		},
 	}
 
@@ -247,13 +256,36 @@ func (h *JobHandler) ResumeJob(c *fiber.Ctx) error {
 
 	id := c.Params("id")
 
+	// Get job to check connector
+	job, err := h.jobRepo.FindByID(ctx, id)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	// Check if connector is active
+	connector, err := h.connectorRepo.FindByExchangeID(ctx, job.ConnectorExchangeID)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Connector not found",
+		})
+	}
+
+	if connector.Status != "active" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Cannot resume job: connector is suspended. Please resume the connector first.",
+		})
+	}
+
+	// Resume the job
 	if err := h.jobRepo.UpdateStatus(ctx, id, "active"); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
 
-	job, err := h.jobRepo.FindByID(ctx, id)
+	job, err = h.jobRepo.FindByID(ctx, id)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
@@ -281,4 +313,67 @@ func (h *JobHandler) DeleteJob(c *fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusNoContent).Send(nil)
+}
+
+// ExecuteJob executes a job manually
+// POST /api/v1/jobs/:id/execute
+func (h *JobHandler) ExecuteJob(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	id := c.Params("id")
+
+	// Execute the job
+	result, err := h.jobExecutor.ExecuteJob(ctx, id)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	// Return result
+	if !result.Success {
+		return c.Status(fiber.StatusOK).JSON(result)
+	}
+
+	return c.JSON(result)
+}
+
+// GetQueue retrieves upcoming job executions
+// GET /api/v1/jobs/queue
+func (h *JobHandler) GetQueue(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Get all active jobs sorted by next run time
+	filter := bson.M{"status": "active"}
+	jobs, err := h.jobRepo.FindAll(ctx, filter)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	// Sort jobs by next_run_time (ascending)
+	// Filter out jobs without next_run_time
+	queuedJobs := make([]*models.Job, 0)
+	for _, job := range jobs {
+		if job.RunState.NextRunTime != nil {
+			queuedJobs = append(queuedJobs, job)
+		}
+	}
+
+	// Sort by next run time
+	for i := 0; i < len(queuedJobs); i++ {
+		for j := i + 1; j < len(queuedJobs); j++ {
+			if queuedJobs[i].RunState.NextRunTime.After(*queuedJobs[j].RunState.NextRunTime) {
+				queuedJobs[i], queuedJobs[j] = queuedJobs[j], queuedJobs[i]
+			}
+		}
+	}
+
+	return c.JSON(fiber.Map{
+		"data":  queuedJobs,
+		"count": len(queuedJobs),
+	})
 }

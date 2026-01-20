@@ -14,15 +14,17 @@ import (
 
 // ConnectorHandler handles connector-related endpoints
 type ConnectorHandler struct {
-	repo   *repository.ConnectorRepository
-	config *config.Config
+	repo    *repository.ConnectorRepository
+	jobRepo *repository.JobRepository
+	config  *config.Config
 }
 
 // NewConnectorHandler creates a new connector handler
-func NewConnectorHandler(repo *repository.ConnectorRepository, cfg *config.Config) *ConnectorHandler {
+func NewConnectorHandler(repo *repository.ConnectorRepository, jobRepo *repository.JobRepository, cfg *config.Config) *ConnectorHandler {
 	return &ConnectorHandler{
-		repo:   repo,
-		config: cfg,
+		repo:    repo,
+		jobRepo: jobRepo,
+		config:  cfg,
 	}
 }
 
@@ -100,9 +102,23 @@ func (h *ConnectorHandler) GetConnectors(c *fiber.Ctx) error {
 		})
 	}
 
+	// Enhance connectors with job counts
+	responses := make([]models.ConnectorResponse, 0, len(connectors))
+	for _, connector := range connectors {
+		jobCount, _ := h.jobRepo.CountByConnector(ctx, connector.ExchangeID)
+		activeJobCount, _ := h.jobRepo.CountActiveByConnector(ctx, connector.ExchangeID)
+
+		response := models.ConnectorResponse{
+			Connector:      *connector,
+			JobCount:       jobCount,
+			ActiveJobCount: activeJobCount,
+		}
+		responses = append(responses, response)
+	}
+
 	return c.JSON(fiber.Map{
-		"data":  connectors,
-		"count": len(connectors),
+		"data":  responses,
+		"count": len(responses),
 	})
 }
 
@@ -120,7 +136,17 @@ func (h *ConnectorHandler) GetConnector(c *fiber.Ctx) error {
 		})
 	}
 
-	return c.JSON(connector)
+	// Enhance with job counts
+	jobCount, _ := h.jobRepo.CountByConnector(ctx, connector.ExchangeID)
+	activeJobCount, _ := h.jobRepo.CountActiveByConnector(ctx, connector.ExchangeID)
+
+	response := models.ConnectorResponse{
+		Connector:      *connector,
+		JobCount:       jobCount,
+		ActiveJobCount: activeJobCount,
+	}
+
+	return c.JSON(response)
 }
 
 // UpdateConnector updates a connector
@@ -244,5 +270,101 @@ func (h *ConnectorHandler) ToggleSandboxMode(c *fiber.Ctx) error {
 		"message":      "Sandbox mode updated successfully",
 		"sandbox_mode": connector.SandboxMode,
 		"connector":    connector,
+	})
+}
+
+// SuspendConnector suspends a connector and all its jobs
+// POST /api/v1/connectors/:id/suspend
+func (h *ConnectorHandler) SuspendConnector(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	id := c.Params("id")
+
+	// Get connector first to get exchange_id
+	connector, err := h.repo.FindByID(ctx, id)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	// Update connector status to disabled (suspended)
+	update := bson.M{"status": "disabled"}
+	if err := h.repo.Update(ctx, id, update); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	// Suspend all jobs attached to this connector
+	if err := h.jobRepo.UpdateStatusByConnector(ctx, connector.ExchangeID, "paused"); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to suspend jobs: " + err.Error(),
+		})
+	}
+
+	// Fetch updated connector with job counts
+	connector, _ = h.repo.FindByID(ctx, id)
+	jobCount, _ := h.jobRepo.CountByConnector(ctx, connector.ExchangeID)
+	activeJobCount, _ := h.jobRepo.CountActiveByConnector(ctx, connector.ExchangeID)
+
+	response := models.ConnectorResponse{
+		Connector:      *connector,
+		JobCount:       jobCount,
+		ActiveJobCount: activeJobCount,
+	}
+
+	return c.JSON(fiber.Map{
+		"message":   "Connector and all attached jobs suspended successfully",
+		"connector": response,
+	})
+}
+
+// ResumeConnector resumes a suspended connector and all its jobs
+// POST /api/v1/connectors/:id/resume
+func (h *ConnectorHandler) ResumeConnector(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	id := c.Params("id")
+
+	// Get connector first to get exchange_id
+	connector, err := h.repo.FindByID(ctx, id)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	// Update connector status to active
+	update := bson.M{"status": "active"}
+	if err := h.repo.Update(ctx, id, update); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	// Resume all jobs attached to this connector
+	if err := h.jobRepo.UpdateStatusByConnector(ctx, connector.ExchangeID, "active"); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to resume jobs: " + err.Error(),
+		})
+	}
+
+	// Fetch updated connector with job counts
+	connector, _ = h.repo.FindByID(ctx, id)
+	jobCount, _ := h.jobRepo.CountByConnector(ctx, connector.ExchangeID)
+	activeJobCount, _ := h.jobRepo.CountActiveByConnector(ctx, connector.ExchangeID)
+
+	response := models.ConnectorResponse{
+		Connector:      *connector,
+		JobCount:       jobCount,
+		ActiveJobCount: activeJobCount,
+	}
+
+	return c.JSON(fiber.Map{
+		"message":   "Connector and all attached jobs resumed successfully",
+		"connector": response,
 	})
 }

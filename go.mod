@@ -1,6 +1,6 @@
 module github.com/yourusername/datacollector
 
-go 1.23
+go 1.24.0
 
 require (
 	github.com/ccxt/ccxt/go/v4 v4.5.33
