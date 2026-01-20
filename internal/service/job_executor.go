@@ -124,13 +124,23 @@ func (e *JobExecutor) ExecuteJob(ctx context.Context, jobID string) (*models.Job
 	// Calculate indicators for the fetched candles
 	if len(candles) > 0 {
 		log.Printf("[EXEC] Calculating indicators for %d candles", len(candles))
-		indicatorConfig := indicators.DefaultConfig()
+
+		// Get merged indicator configuration (Job overrides Connector)
+		indicatorConfig := indicators.GetEffectiveConfig(connector.IndicatorConfig, job.IndicatorConfig)
+
+		// Validate configuration
+		if err := e.indicatorService.ValidateConfig(indicatorConfig); err != nil {
+			log.Printf("[EXEC] Warning: Invalid indicator configuration: %v", err)
+			indicatorConfig = indicators.DefaultConfig() // Fallback to defaults
+		}
+
+		// Calculate indicators
 		candles, err = e.indicatorService.CalculateAll(candles, indicatorConfig)
 		if err != nil {
 			log.Printf("[EXEC] Warning: Indicator calculation failed: %v", err)
 			// Continue with storing candles even if indicator calculation fails
 		} else {
-			log.Printf("[EXEC] Indicators calculated successfully")
+			log.Printf("[EXEC] Indicators calculated successfully with config priority: Job > Connector > Defaults")
 		}
 	}
 

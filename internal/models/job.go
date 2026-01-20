@@ -19,6 +19,9 @@ type Job struct {
 	Schedule Schedule `bson:"schedule" json:"schedule"`
 	Cursor   Cursor   `bson:"cursor" json:"cursor"`
 	RunState RunState `bson:"run_state" json:"run_state"`
+
+	// Indicator configuration (overrides connector defaults if specified)
+	IndicatorConfig *IndicatorConfig `bson:"indicator_config,omitempty" json:"indicator_config,omitempty"`
 }
 
 // Schedule defines when the job should run

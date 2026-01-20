@@ -20,6 +20,9 @@ type Connector struct {
 
 	// Credentials reference (keys stored in environment variables)
 	CredentialsRef CredentialsRef `bson:"credentials_ref,omitempty" json:"credentials_ref,omitempty"`
+
+	// Indicator configuration (default for all jobs using this connector)
+	IndicatorConfig *IndicatorConfig `bson:"indicator_config,omitempty" json:"indicator_config,omitempty"`
 }
 
 // RateLimit holds rate limiting configuration and state
