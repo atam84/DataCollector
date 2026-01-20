@@ -7,7 +7,6 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 
-	"github.com/yourusername/datacollector/internal/models"
 	"github.com/yourusername/datacollector/internal/repository"
 	"github.com/yourusername/datacollector/internal/service/indicators"
 )
