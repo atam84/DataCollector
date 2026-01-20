@@ -232,3 +232,53 @@ func (r *OHLCVRepository) BulkInsert(ctx context.Context, ohlcvList []models.Can
 	log.Printf("[OHLCV_REPO] BulkInsert called (deprecated) - redirecting to UpsertCandles")
 	return r.UpsertCandles(ctx, exchangeID, symbol, timeframe, ohlcvList)
 }
+
+// Count returns the total number of candles for the given filter
+func (r *OHLCVRepository) Count(ctx context.Context, filter bson.M) (int64, error) {
+	var doc models.OHLCVDocument
+	err := r.collection.FindOne(ctx, filter).Decode(&doc)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("failed to count candles: %w", err)
+	}
+
+	return int64(len(doc.Candles)), nil
+}
+
+// FindWithPagination returns paginated candles for the given filter
+func (r *OHLCVRepository) FindWithPagination(ctx context.Context, filter bson.M, skip, limit int64) ([]models.Candle, error) {
+	var doc models.OHLCVDocument
+	err := r.collection.FindOne(ctx, filter).Decode(&doc)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return []models.Candle{}, nil
+		}
+		return nil, fmt.Errorf("failed to find candles: %w", err)
+	}
+
+	// Apply pagination on the candles array
+	total := int64(len(doc.Candles))
+
+	if skip >= total {
+		return []models.Candle{}, nil
+	}
+
+	end := skip + limit
+	if end > total {
+		end = total
+	}
+
+	// Sort candles by timestamp descending (newest first)
+	candles := doc.Candles
+	for i := 0; i < len(candles)-1; i++ {
+		for j := i + 1; j < len(candles); j++ {
+			if candles[i].Timestamp < candles[j].Timestamp {
+				candles[i], candles[j] = candles[j], candles[i]
+			}
+		}
+	}
+
+	return candles[skip:end], nil
+}

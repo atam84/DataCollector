@@ -7,20 +7,27 @@ import {
   PlayIcon,
   TrashIcon,
   PlusIcon,
-  BoltIcon
+  BoltIcon,
+  MagnifyingGlassIcon,
+  FunnelIcon
 } from '@heroicons/react/24/outline'
 import IndicatorConfig from './IndicatorConfig'
+import JobDetails from './JobDetails'
 
 const API_BASE = '/api/v1'
 
 function JobList({ jobs, connectors, onRefresh, loading }) {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showConfigModal, setShowConfigModal] = useState(false)
+  const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [selectedJob, setSelectedJob] = useState(null)
   const [indicatorConfig, setIndicatorConfig] = useState(null)
   const [connectorConfig, setConnectorConfig] = useState(null)
   const [loadingConfig, setLoadingConfig] = useState(false)
   const [recalculatingJobs, setRecalculatingJobs] = useState(new Set())
+  const [searchTerm, setSearchTerm] = useState('')
+  const [selectedConnectors, setSelectedConnectors] = useState([])
+  const [showConnectorFilter, setShowConnectorFilter] = useState(false)
   const [formData, setFormData] = useState({
     connector_exchange_id: '',
     symbol: 'BTC/USDT',
@@ -164,18 +171,136 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
     }
   }
 
+  const openJobDetails = (job) => {
+    setSelectedJob(job)
+    setShowDetailsModal(true)
+  }
+
+  const toggleConnectorFilter = (exchangeId) => {
+    setSelectedConnectors(prev => {
+      if (prev.includes(exchangeId)) {
+        return prev.filter(id => id !== exchangeId)
+      } else {
+        return [...prev, exchangeId]
+      }
+    })
+  }
+
+  // Filter jobs based on search and connector selection
+  const filteredJobs = jobs.filter(job => {
+    const matchesSearch = job.symbol.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesConnector = selectedConnectors.length === 0 ||
+                            selectedConnectors.includes(job.connector_exchange_id)
+    return matchesSearch && matchesConnector
+  })
+
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-900">Jobs</h2>
         <button
           onClick={() => setShowCreateModal(true)}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition flex items-center space-x-2"
+          className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50"
           disabled={connectors.length === 0}
+          title="New Job"
         >
           <PlusIcon className="w-5 h-5" />
-          <span>New Job</span>
         </button>
+      </div>
+
+      {/* Search and Filter Bar */}
+      <div className="bg-white rounded-lg shadow p-4 mb-6">
+        <div className="flex flex-col md:flex-row gap-4">
+          {/* Search Input */}
+          <div className="flex-1 relative">
+            <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search by symbol..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* Connector Filter */}
+          <div className="relative">
+            <button
+              onClick={() => setShowConnectorFilter(!showConnectorFilter)}
+              className={`px-4 py-2 border rounded-lg flex items-center space-x-2 ${
+                selectedConnectors.length > 0
+                  ? 'border-blue-500 bg-blue-50 text-blue-700'
+                  : 'border-gray-300 text-gray-700'
+              }`}
+            >
+              <FunnelIcon className="w-5 h-5" />
+              <span>
+                Connectors {selectedConnectors.length > 0 && `(${selectedConnectors.length})`}
+              </span>
+            </button>
+
+            {/* Connector Dropdown */}
+            {showConnectorFilter && (
+              <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-10">
+                <div className="p-3">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm font-medium text-gray-700">Filter by Connector</span>
+                    {selectedConnectors.length > 0 && (
+                      <button
+                        onClick={() => setSelectedConnectors([])}
+                        className="text-xs text-blue-600 hover:text-blue-800"
+                      >
+                        Clear all
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {connectors.map(connector => (
+                      <label
+                        key={connector.id}
+                        className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedConnectors.includes(connector.exchange_id)}
+                          onChange={() => toggleConnectorFilter(connector.exchange_id)}
+                          className="rounded text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-sm text-gray-700">{connector.display_name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Active Filters Display */}
+        {(searchTerm || selectedConnectors.length > 0) && (
+          <div className="mt-3 flex items-center space-x-2 text-sm text-gray-600">
+            <span>Active filters:</span>
+            {searchTerm && (
+              <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded">
+                Symbol: "{searchTerm}"
+              </span>
+            )}
+            {selectedConnectors.length > 0 && (
+              <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded">
+                {selectedConnectors.length} connector(s)
+              </span>
+            )}
+            <button
+              onClick={() => {
+                setSearchTerm('')
+                setSelectedConnectors([])
+              }}
+              className="text-blue-600 hover:text-blue-800"
+            >
+              Clear all
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Jobs Table */}
@@ -188,9 +313,11 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
         <div className="bg-white rounded-lg shadow p-12 text-center">
           <p className="text-gray-500">Please create a connector first before creating jobs</p>
         </div>
-      ) : jobs.length === 0 ? (
+      ) : filteredJobs.length === 0 ? (
         <div className="bg-white rounded-lg shadow p-12 text-center">
-          <p className="text-gray-500 mb-4">No jobs configured yet</p>
+          <p className="text-gray-500 mb-4">
+            {jobs.length === 0 ? 'No jobs configured yet' : 'No jobs match your filters'}
+          </p>
           <button
             onClick={() => setShowCreateModal(true)}
             className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
@@ -200,6 +327,11 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-3 bg-gray-50 border-b border-gray-200">
+            <span className="text-sm text-gray-600">
+              Showing {filteredJobs.length} of {jobs.length} jobs
+            </span>
+          </div>
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -224,10 +356,15 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {jobs.map(job => (
+              {filteredJobs.map(job => (
                 <tr key={job.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{job.symbol}</div>
+                    <button
+                      onClick={() => openJobDetails(job)}
+                      className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                    >
+                      {job.symbol}
+                    </button>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">{job.timeframe}</div>
@@ -265,52 +402,52 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
                       <div className="flex space-x-2">
                         <button
                           onClick={() => executeJob(job.id)}
-                          className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed text-xs flex items-center"
+                          className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                           disabled={executingJobs.has(job.id)}
+                          title={executingJobs.has(job.id) ? 'Running...' : 'Run now'}
                         >
-                          <BoltIcon className="w-3 h-3 mr-1" />
-                          <span>{executingJobs.has(job.id) ? 'Running...' : 'Run'}</span>
+                          <BoltIcon className={`w-4 h-4 ${executingJobs.has(job.id) ? 'animate-spin' : ''}`} />
                         </button>
                         <button
                           onClick={() => openConfigModal(job)}
-                          className="px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 transition text-xs flex items-center"
+                          className="p-1 bg-purple-500 text-white rounded hover:bg-purple-600 transition flex items-center justify-center"
+                          title="Configure indicators"
                         >
-                          <Cog6ToothIcon className="w-3 h-3 mr-1" />
-                          <span>Config</span>
+                          <Cog6ToothIcon className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => recalculateJob(job.id)}
-                          className="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition disabled:opacity-50 text-xs flex items-center"
+                          className="p-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition disabled:opacity-50 flex items-center justify-center"
                           disabled={recalculatingJobs.has(job.id)}
                           title="Recalculate indicators"
                         >
-                          <ArrowPathIcon className={`w-3 h-3 ${recalculatingJobs.has(job.id) ? 'animate-spin' : ''}`} />
+                          <ArrowPathIcon className={`w-4 h-4 ${recalculatingJobs.has(job.id) ? 'animate-spin' : ''}`} />
                         </button>
                       </div>
                       <div className="flex space-x-2">
                         {job.status === 'active' ? (
                           <button
                             onClick={() => pauseJob(job.id)}
-                            className="text-yellow-600 hover:text-yellow-900 text-xs flex items-center"
+                            className="p-1 text-yellow-600 hover:text-yellow-900 flex items-center justify-center"
+                            title="Pause job"
                           >
-                            <PauseIcon className="w-3 h-3 mr-1" />
-                            <span>Pause</span>
+                            <PauseIcon className="w-4 h-4" />
                           </button>
                         ) : (
                           <button
                             onClick={() => resumeJob(job.id)}
-                            className="text-green-600 hover:text-green-900 text-xs flex items-center"
+                            className="p-1 text-green-600 hover:text-green-900 flex items-center justify-center"
+                            title="Resume job"
                           >
-                            <PlayIcon className="w-3 h-3 mr-1" />
-                            <span>Resume</span>
+                            <PlayIcon className="w-4 h-4" />
                           </button>
                         )}
                         <button
                           onClick={() => deleteJob(job.id)}
-                          className="text-red-600 hover:text-red-900 text-xs flex items-center"
+                          className="p-1 text-red-600 hover:text-red-900 flex items-center justify-center"
+                          title="Delete job"
                         >
-                          <TrashIcon className="w-3 h-3 mr-1" />
-                          <span>Delete</span>
+                          <TrashIcon className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
@@ -399,6 +536,34 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Job Details Modal */}
+      {showDetailsModal && selectedJob && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-7xl max-h-[95vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900">{selectedJob.symbol}</h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {selectedJob.timeframe} • {getConnectorName(selectedJob.connector_exchange_id)}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowDetailsModal(false)}
+                  className="text-gray-400 hover:text-gray-600 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              <JobDetails job={selectedJob} connector={getConnector(selectedJob.connector_exchange_id)} />
+            </div>
           </div>
         </div>
       )}

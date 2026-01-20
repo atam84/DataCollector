@@ -147,10 +147,10 @@ function ConnectorList({ connectors, onRefresh, loading }) {
         <h2 className="text-2xl font-bold text-gray-900">Connectors</h2>
         <button
           onClick={() => setShowCreateModal(true)}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition flex items-center space-x-2"
+          className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+          title="New Connector"
         >
           <PlusIcon className="w-5 h-5" />
-          <span>New Connector</span>
         </button>
       </div>
 
@@ -250,18 +250,18 @@ function ConnectorList({ connectors, onRefresh, loading }) {
               <div className="flex space-x-2 mb-2">
                 <button
                   onClick={() => openConfigModal(connector)}
-                  className="flex-1 px-3 py-2 bg-purple-500 text-white text-sm rounded hover:bg-purple-600 transition flex items-center justify-center"
+                  className="flex-1 py-2 bg-purple-500 text-white text-sm rounded hover:bg-purple-600 transition flex items-center justify-center"
+                  title="Configure indicators"
                 >
-                  <Cog6ToothIcon className="w-4 h-4 mr-1" />
-                  <span>Configure</span>
+                  <Cog6ToothIcon className="w-5 h-5" />
                 </button>
                 <button
                   onClick={() => recalculateConnector(connector.id)}
-                  className="flex-1 px-3 py-2 bg-indigo-500 text-white text-sm rounded hover:bg-indigo-600 transition flex items-center justify-center disabled:opacity-50"
+                  className="flex-1 py-2 bg-indigo-500 text-white text-sm rounded hover:bg-indigo-600 transition flex items-center justify-center disabled:opacity-50"
                   disabled={recalculating.has(connector.id)}
+                  title="Recalculate all indicators"
                 >
-                  <ArrowPathIcon className={`w-4 h-4 mr-1 ${recalculating.has(connector.id) ? 'animate-spin' : ''}`} />
-                  <span>{recalculating.has(connector.id) ? 'Recalc...' : 'Recalculate'}</span>
+                  <ArrowPathIcon className={`w-5 h-5 ${recalculating.has(connector.id) ? 'animate-spin' : ''}`} />
                 </button>
               </div>
 
@@ -270,26 +270,26 @@ function ConnectorList({ connectors, onRefresh, loading }) {
                 {connector.status === 'active' ? (
                   <button
                     onClick={() => suspendConnector(connector.id)}
-                    className="flex-1 px-3 py-2 bg-yellow-500 text-white text-sm rounded hover:bg-yellow-600 transition flex items-center justify-center"
+                    className="flex-1 py-2 bg-yellow-500 text-white text-sm rounded hover:bg-yellow-600 transition flex items-center justify-center"
+                    title="Suspend connector"
                   >
-                    <PauseIcon className="w-4 h-4 mr-1" />
-                    <span>Suspend</span>
+                    <PauseIcon className="w-5 h-5" />
                   </button>
                 ) : (
                   <button
                     onClick={() => resumeConnector(connector.id)}
-                    className="flex-1 px-3 py-2 bg-green-500 text-white text-sm rounded hover:bg-green-600 transition flex items-center justify-center"
+                    className="flex-1 py-2 bg-green-500 text-white text-sm rounded hover:bg-green-600 transition flex items-center justify-center"
+                    title="Resume connector"
                   >
-                    <PlayIcon className="w-4 h-4 mr-1" />
-                    <span>Resume</span>
+                    <PlayIcon className="w-5 h-5" />
                   </button>
                 )}
                 <button
                   onClick={() => deleteConnector(connector.id)}
-                  className="flex-1 px-3 py-2 bg-red-500 text-white text-sm rounded hover:bg-red-600 transition flex items-center justify-center"
+                  className="flex-1 py-2 bg-red-500 text-white text-sm rounded hover:bg-red-600 transition flex items-center justify-center"
+                  title="Delete connector"
                 >
-                  <TrashIcon className="w-4 h-4 mr-1" />
-                  <span>Delete</span>
+                  <TrashIcon className="w-5 h-5" />
                 </button>
               </div>
             </div>

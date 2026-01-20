@@ -102,7 +102,7 @@ func main() {
 	// Initialize handlers
 	healthHandler := handlers.NewHealthHandler(db)
 	connectorHandler := handlers.NewConnectorHandler(connectorRepo, jobRepo, cfg)
-	jobHandler := handlers.NewJobHandler(jobRepo, connectorRepo, jobExecutor)
+	jobHandler := handlers.NewJobHandler(jobRepo, connectorRepo, ohlcvRepo, jobExecutor)
 	indicatorHandler := handlers.NewIndicatorHandler(ohlcvRepo, recalcService)
 
 	// Health routes
@@ -138,6 +138,11 @@ func main() {
 	api.Get("/jobs/:id/indicators/config", jobHandler.GetIndicatorConfig)
 	api.Put("/jobs/:id/indicators/config", jobHandler.UpdateIndicatorConfig)
 	api.Patch("/jobs/:id/indicators/config", jobHandler.PatchIndicatorConfig)
+
+	// Job data export routes
+	api.Get("/jobs/:id/ohlcv", jobHandler.GetJobOHLCVData)
+	api.Get("/jobs/:id/export", jobHandler.ExportJobData)
+	api.Get("/jobs/:id/export/ml", jobHandler.ExportJobDataForML)
 
 	// Connector-specific job routes
 	api.Get("/connectors/:exchangeId/jobs", jobHandler.GetJobsByConnector)

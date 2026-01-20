@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import { BoltIcon } from '@heroicons/react/24/outline'
 
 const API_BASE = '/api/v1'
 
 function JobQueue({ connectors }) {
   const [queue, setQueue] = useState([])
   const [loading, setLoading] = useState(true)
+  const [executingJobs, setExecutingJobs] = useState(new Set())
 
   useEffect(() => {
     fetchQueue()
@@ -27,6 +29,30 @@ function JobQueue({ connectors }) {
   const getConnectorName = (exchangeId) => {
     const connector = connectors.find(c => c.exchange_id === exchangeId)
     return connector ? connector.display_name : exchangeId
+  }
+
+  const executeJob = async (id) => {
+    setExecutingJobs(prev => new Set(prev).add(id))
+    try {
+      const response = await axios.post(`${API_BASE}/jobs/${id}/execute`)
+      const result = response.data
+
+      if (result.success) {
+        alert(`Job executed successfully!\nRecords fetched: ${result.records_fetched}\nExecution time: ${result.execution_time_ms}ms`)
+      } else {
+        alert(`Job execution failed: ${result.error || result.message}`)
+      }
+
+      fetchQueue()
+    } catch (err) {
+      alert('Failed to execute job: ' + (err.response?.data?.error || err.message))
+    } finally {
+      setExecutingJobs(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(id)
+        return newSet
+      })
+    }
   }
 
   const getCountdown = (nextRunTime) => {
@@ -105,6 +131,9 @@ function JobQueue({ connectors }) {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Total Runs
                 </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -141,6 +170,16 @@ function JobQueue({ connectors }) {
                     <div className="text-sm text-gray-500">
                       {job.run_state?.runs_total || 0}
                     </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <button
+                      onClick={() => executeJob(job.id)}
+                      className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                      disabled={executingJobs.has(job.id)}
+                      title={executingJobs.has(job.id) ? 'Running...' : 'Run now'}
+                    >
+                      <BoltIcon className={`w-4 h-4 ${executingJobs.has(job.id) ? 'animate-spin' : ''}`} />
+                    </button>
                   </td>
                 </tr>
               ))}
