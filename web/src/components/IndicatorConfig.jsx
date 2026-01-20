@@ -185,7 +185,7 @@ function IndicatorConfig({ config, onChange, onSave, onReset, isJobLevel = false
               <label className="text-xs text-gray-600 w-24">Multiplier:</label>
               <input
                 type="number"
-                value={getValue(indicator, 'multiplier', 3.0)}
+                value={getValue('supertrend', 'multiplier', 3.0)}
                 onChange={(e) => handleFieldChange('supertrend', 'multiplier', parseFloat(e.target.value))}
                 step="0.1"
                 min="1"
@@ -249,7 +249,7 @@ function IndicatorConfig({ config, onChange, onSave, onReset, isJobLevel = false
               <label className="text-xs text-gray-600 w-24">Std Dev:</label>
               <input
                 type="number"
-                value={getValue(indicator, 'std_dev', 2.0)}
+                value={getValue('bollinger', 'std_dev', 2.0)}
                 onChange={(e) => handleFieldChange('bollinger', 'std_dev', parseFloat(e.target.value))}
                 step="0.1"
                 min="1"
@@ -270,7 +270,7 @@ function IndicatorConfig({ config, onChange, onSave, onReset, isJobLevel = false
               <label className="text-xs text-gray-600 w-24">Multiplier:</label>
               <input
                 type="number"
-                value={getValue(indicator, 'multiplier', 2.0)}
+                value={getValue('keltner', 'multiplier', 2.0)}
                 onChange={(e) => handleFieldChange('keltner', 'multiplier', parseFloat(e.target.value))}
                 step="0.1"
                 min="1"
