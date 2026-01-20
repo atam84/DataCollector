@@ -28,11 +28,11 @@ func NewIndicatorHandler(
 }
 
 // GetLatestIndicators retrieves the latest candle with indicators
-// GET /api/v1/indicators/:exchange/:symbol/:timeframe/latest
+// GET /api/v1/indicators/:exchange/:timeframe/:symbol+/latest
 func (h *IndicatorHandler) GetLatestIndicators(c *fiber.Ctx) error {
 	exchangeID := c.Params("exchange")
-	symbol := c.Params("symbol")
 	timeframe := c.Params("timeframe")
+	symbol := c.Params("symbol+")
 
 	// Fetch OHLCV document
 	doc, err := h.ohlcvRepo.FindByJob(c.Context(), exchangeID, symbol, timeframe)
@@ -64,11 +64,11 @@ func (h *IndicatorHandler) GetLatestIndicators(c *fiber.Ctx) error {
 }
 
 // GetIndicatorRange retrieves indicators for a range of candles
-// GET /api/v1/indicators/:exchange/:symbol/:timeframe/range?limit=100&offset=0
+// GET /api/v1/indicators/:exchange/:timeframe/:symbol+/range?limit=100&offset=0
 func (h *IndicatorHandler) GetIndicatorRange(c *fiber.Ctx) error {
 	exchangeID := c.Params("exchange")
-	symbol := c.Params("symbol")
 	timeframe := c.Params("timeframe")
+	symbol := c.Params("symbol+")
 
 	// Parse query parameters
 	limit := 100 // default
@@ -132,11 +132,11 @@ func (h *IndicatorHandler) GetIndicatorRange(c *fiber.Ctx) error {
 }
 
 // GetSpecificIndicator retrieves history of a specific indicator
-// GET /api/v1/indicators/:exchange/:symbol/:timeframe/:indicator?limit=100
+// GET /api/v1/indicators/:exchange/:timeframe/:symbol+/:indicator?limit=100
 func (h *IndicatorHandler) GetSpecificIndicator(c *fiber.Ctx) error {
 	exchangeID := c.Params("exchange")
-	symbol := c.Params("symbol")
 	timeframe := c.Params("timeframe")
+	symbol := c.Params("symbol+")
 	indicatorName := c.Params("indicator")
 
 	limit := 100
