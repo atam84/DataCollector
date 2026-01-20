@@ -470,7 +470,7 @@ func (h *JobHandler) PatchIndicatorConfig(c *fiber.Ctx) error {
 	}
 
 	// Fetch updated job
-	job, _ = h.repo.FindByID(ctx, id)
+	job, _ = h.jobRepo.FindByID(ctx, id)
 
 	return c.JSON(fiber.Map{
 		"success": true,
