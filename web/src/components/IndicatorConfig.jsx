@@ -1,4 +1,36 @@
 import { useState, useEffect } from 'react'
+import { InformationCircleIcon } from '@heroicons/react/24/outline'
+
+// Indicator descriptions for tooltips
+const indicatorInfo = {
+  sma: 'Simple Moving Average - Averages price over a period to smooth out trends.',
+  ema: 'Exponential Moving Average - Gives more weight to recent prices for faster trend detection.',
+  dema: 'Double EMA - Reduces lag by applying EMA twice.',
+  tema: 'Triple EMA - Further reduces lag with three EMA applications.',
+  wma: 'Weighted Moving Average - Linearly decreasing weights for balance.',
+  hma: 'Hull Moving Average - Low-lag trend indicator using weighted averages.',
+  vwma: 'Volume Weighted MA - Weights prices by volume.',
+  ichimoku: 'Ichimoku Cloud - Multi-component system showing support/resistance and momentum.',
+  adx: 'Average Directional Index - Measures trend strength (>25 = trending).',
+  supertrend: 'SuperTrend - Trend-following indicator with dynamic stop-loss levels.',
+  rsi: 'Relative Strength Index - Momentum oscillator for overbought (>70) / oversold (<30).',
+  stochastic: 'Stochastic Oscillator - Compares close to price range for momentum.',
+  macd: 'MACD - Shows relationship between two EMAs for trend and momentum.',
+  roc: 'Rate of Change - Percentage price change over a period.',
+  cci: 'Commodity Channel Index - Measures deviation from average price.',
+  williams_r: 'Williams %R - Momentum indicator comparing close to high-low range.',
+  momentum: 'Momentum - Simple rate of price change.',
+  bollinger: 'Bollinger Bands - Volatility-based price channel (SMA ± Std Dev).',
+  atr: 'Average True Range - Measures market volatility.',
+  keltner: 'Keltner Channels - Volatility envelopes using EMA and ATR.',
+  donchian: 'Donchian Channels - Price channel of highest high and lowest low.',
+  stddev: 'Standard Deviation - Statistical measure of volatility.',
+  obv: 'On-Balance Volume - Cumulative volume flow indicator.',
+  vwap: 'Volume Weighted Average Price - Average price weighted by volume.',
+  mfi: 'Money Flow Index - Volume-weighted RSI for buying/selling pressure.',
+  cmf: 'Chaikin Money Flow - Measures money flow volume.',
+  volume_sma: 'Volume SMA - Moving average of trading volume.'
+}
 
 /**
  * IndicatorConfig Component
@@ -17,6 +49,7 @@ import { useState, useEffect } from 'react'
 function IndicatorConfig({ config, onChange, onSave, onReset, isJobLevel = false, connectorConfig = null }) {
   const [localConfig, setLocalConfig] = useState(config || {})
   const [hasChanges, setHasChanges] = useState(false)
+  const [showTooltip, setShowTooltip] = useState(null)
 
   useEffect(() => {
     setLocalConfig(config || {})
@@ -93,6 +126,21 @@ function IndicatorConfig({ config, onChange, onSave, onReset, isJobLevel = false
             />
           </button>
           <span className="text-sm font-medium text-gray-900">{label}</span>
+          {indicatorInfo[indicator] && (
+            <div className="relative inline-block">
+              <InformationCircleIcon
+                className="w-4 h-4 text-gray-400 hover:text-blue-500 cursor-help transition-colors"
+                onMouseEnter={() => setShowTooltip(indicator)}
+                onMouseLeave={() => setShowTooltip(null)}
+              />
+              {showTooltip === indicator && (
+                <div className="absolute z-50 left-6 top-0 w-64 bg-gray-900 text-white text-xs rounded-lg p-3 shadow-lg">
+                  {indicatorInfo[indicator]}
+                  <div className="absolute top-2 -left-1 w-2 h-2 bg-gray-900 transform rotate-45"></div>
+                </div>
+              )}
+            </div>
+          )}
           {isInherited(indicator) && (
             <span className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded">Inherited</span>
           )}

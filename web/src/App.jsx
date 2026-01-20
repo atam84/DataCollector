@@ -4,6 +4,7 @@ import ConnectorList from './components/ConnectorList'
 import JobList from './components/JobList'
 import Dashboard from './components/Dashboard'
 import JobQueue from './components/JobQueue'
+import IndicatorsInfo from './components/IndicatorsInfo'
 
 const API_BASE = '/api/v1'
 
@@ -100,6 +101,16 @@ function App() {
             >
               Queue
             </button>
+            <button
+              onClick={() => setActiveTab('indicators')}
+              className={`${
+                activeTab === 'indicators'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+            >
+              Indicators
+            </button>
           </nav>
         </div>
 
@@ -141,6 +152,9 @@ function App() {
             <JobQueue
               connectors={connectors}
             />
+          )}
+          {activeTab === 'indicators' && (
+            <IndicatorsInfo />
           )}
         </div>
       </div>
