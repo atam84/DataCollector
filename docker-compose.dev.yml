@@ -1,0 +1,74 @@
+version: '3.8'
+
+# Development version with volume mounts for hot reloading
+
+services:
+  # MongoDB Database (same as production)
+  mongodb:
+    image: mongo:latest
+    container_name: datacollector-mongodb-dev
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: datacollector
+    volumes:
+      - mongodb_data_dev:/data/db
+    networks:
+      - datacollector-network-dev
+
+  # Backend API with volume mount for hot reload
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: datacollector-api-dev
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_PORT: 8080
+      SERVER_HOST: 0.0.0.0
+      MONGODB_URI: mongodb://mongodb:27017
+      MONGODB_DATABASE: datacollector
+      EXCHANGE_SANDBOX_MODE: "true"
+      EXCHANGE_ENABLE_RATE_LIMIT: "true"
+      EXCHANGE_REQUEST_TIMEOUT: "30000"
+    volumes:
+      # Mount source code for hot reload
+      - .:/app
+      - /app/bin
+    depends_on:
+      - mongodb
+    networks:
+      - datacollector-network-dev
+    command: go run cmd/api/main.go
+
+  # Frontend with Vite dev server
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.dev
+    container_name: datacollector-web-dev
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+    volumes:
+      # Mount source code for hot reload
+      - ./web:/app
+      - /app/node_modules
+    depends_on:
+      - api
+    networks:
+      - datacollector-network-dev
+    command: npm run dev -- --host 0.0.0.0
+
+volumes:
+  mongodb_data_dev:
+    driver: local
+
+networks:
+  datacollector-network-dev:
+    driver: bridge
