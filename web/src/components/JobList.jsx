@@ -13,11 +13,12 @@ import {
 } from '@heroicons/react/24/outline'
 import IndicatorConfig from './IndicatorConfig'
 import JobDetails from './JobDetails'
+import JobWizard from './JobWizard'
 
 const API_BASE = '/api/v1'
 
 function JobList({ jobs, connectors, onRefresh, loading }) {
-  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showCreateWizard, setShowCreateWizard] = useState(false)
   const [showConfigModal, setShowConfigModal] = useState(false)
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [selectedJob, setSelectedJob] = useState(null)
@@ -28,32 +29,16 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedConnectors, setSelectedConnectors] = useState([])
   const [showConnectorFilter, setShowConnectorFilter] = useState(false)
-  const [formData, setFormData] = useState({
-    connector_exchange_id: '',
-    symbol: 'BTC/USDT',
-    timeframe: '1h',
-    status: 'active'
-  })
   const [submitting, setSubmitting] = useState(false)
   const [executingJobs, setExecutingJobs] = useState(new Set())
 
-  const handleCreate = async (e) => {
-    e.preventDefault()
-    setSubmitting(true)
+  const handleWizardSave = async (jobs) => {
     try {
-      await axios.post(`${API_BASE}/jobs`, formData)
-      setShowCreateModal(false)
-      setFormData({
-        connector_exchange_id: '',
-        symbol: 'BTC/USDT',
-        timeframe: '1h',
-        status: 'active'
-      })
+      // Create all jobs via batch endpoint
+      await axios.post(`${API_BASE}/jobs/batch`, { jobs })
       onRefresh()
     } catch (err) {
-      alert('Failed to create job: ' + (err.response?.data?.error || err.message))
-    } finally {
-      setSubmitting(false)
+      throw new Error(err.response?.data?.error || err.message)
     }
   }
 
@@ -199,10 +184,10 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-900">Jobs</h2>
         <button
-          onClick={() => setShowCreateModal(true)}
+          onClick={() => setShowCreateWizard(true)}
           className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50"
           disabled={connectors.length === 0}
-          title="New Job"
+          title="Create Multiple Jobs"
         >
           <PlusIcon className="w-5 h-5" />
         </button>
@@ -459,8 +444,17 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
         </div>
       )}
 
-      {/* Create Modal */}
-      {showCreateModal && (
+      {/* Job Creation Wizard */}
+      {showCreateWizard && (
+        <JobWizard
+          connectors={connectors}
+          onClose={() => setShowCreateWizard(false)}
+          onSave={handleWizardSave}
+        />
+      )}
+
+      {/* Old Create Modal (REMOVED) */}
+      {false && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <h3 className="text-xl font-bold mb-4">Create New Job</h3>

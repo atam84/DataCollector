@@ -46,10 +46,11 @@ type RunState struct {
 
 // JobCreateRequest is the DTO for creating a job
 type JobCreateRequest struct {
-	ConnectorExchangeID string `json:"connector_exchange_id" validate:"required"`
-	Symbol              string `json:"symbol" validate:"required"`
-	Timeframe           string `json:"timeframe" validate:"required,oneof=1m 5m 15m 30m 1h 4h 1d 1w"`
-	Status              string `json:"status" validate:"omitempty,oneof=active paused"`
+	ConnectorExchangeID string           `json:"connector_exchange_id" validate:"required"`
+	Symbol              string           `json:"symbol" validate:"required"`
+	Timeframe           string           `json:"timeframe" validate:"required,oneof=1m 5m 15m 30m 1h 4h 1d 1w"`
+	Status              string           `json:"status" validate:"omitempty,oneof=active paused"`
+	IndicatorConfig     *IndicatorConfig `json:"indicator_config,omitempty"`
 }
 
 // JobUpdateRequest is the DTO for updating a job

@@ -92,6 +92,100 @@ func (h *JobHandler) CreateJob(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(job)
 }
 
+// CreateJobsBatch creates multiple jobs at once
+// POST /api/v1/jobs/batch
+func (h *JobHandler) CreateJobsBatch(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var req struct {
+		Jobs []models.JobCreateRequest `json:"jobs"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	if len(req.Jobs) == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "No jobs provided",
+		})
+	}
+
+	if len(req.Jobs) > 100 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Cannot create more than 100 jobs at once",
+		})
+	}
+
+	// Validate all jobs first
+	for i, jobReq := range req.Jobs {
+		if jobReq.ConnectorExchangeID == "" || jobReq.Symbol == "" || jobReq.Timeframe == "" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": fmt.Sprintf("Job %d: connector_exchange_id, symbol, and timeframe are required", i+1),
+			})
+		}
+
+		// Verify connector exists
+		_, err := h.connectorRepo.FindByExchangeID(ctx, jobReq.ConnectorExchangeID)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": fmt.Sprintf("Job %d: Connector not found for exchange: %s", i+1, jobReq.ConnectorExchangeID),
+			})
+		}
+	}
+
+	// Create all jobs
+	createdJobs := make([]*models.Job, 0, len(req.Jobs))
+	failed := make([]string, 0)
+
+	for i, jobReq := range req.Jobs {
+		status := jobReq.Status
+		if status == "" {
+			status = "active"
+		}
+
+		// Calculate initial next run time with slight offset to avoid simultaneous starts
+		nextRunTime := time.Now().Add(time.Duration(1+i) * time.Minute)
+
+		job := &models.Job{
+			ConnectorExchangeID: jobReq.ConnectorExchangeID,
+			Symbol:              jobReq.Symbol,
+			Timeframe:           jobReq.Timeframe,
+			Status:              status,
+			Schedule: models.Schedule{
+				Mode: "timeframe",
+			},
+			RunState: models.RunState{
+				NextRunTime: &nextRunTime,
+			},
+		}
+
+		// Set indicator config if provided
+		if jobReq.IndicatorConfig != nil {
+			job.IndicatorConfig = jobReq.IndicatorConfig
+		}
+
+		// Create in database
+		if err := h.jobRepo.Create(ctx, job); err != nil {
+			failed = append(failed, fmt.Sprintf("%s/%s: %v", job.Symbol, job.Timeframe, err))
+			continue
+		}
+
+		createdJobs = append(createdJobs, job)
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"success":      true,
+		"created":      len(createdJobs),
+		"failed":       len(failed),
+		"failed_jobs":  failed,
+		"jobs":         createdJobs,
+	})
+}
+
 // GetJobs retrieves all jobs
 // GET /api/v1/jobs
 func (h *JobHandler) GetJobs(c *fiber.Ctx) error {

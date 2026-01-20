@@ -107,6 +107,8 @@ func main() {
 
 	// Health routes
 	api.Get("/health", healthHandler.GetHealth)
+	api.Get("/exchanges", healthHandler.GetSupportedExchanges)
+	api.Get("/exchanges/test", healthHandler.TestExchangeAvailability)
 
 	// Connector routes
 	api.Post("/connectors", connectorHandler.CreateConnector)
@@ -123,8 +125,9 @@ func main() {
 	api.Put("/connectors/:id/indicators/config", connectorHandler.UpdateIndicatorConfig)
 	api.Patch("/connectors/:id/indicators/config", connectorHandler.PatchIndicatorConfig)
 
-	// Job routes (queue route MUST come before :id routes)
+	// Job routes (queue and batch routes MUST come before :id routes)
 	api.Post("/jobs", jobHandler.CreateJob)
+	api.Post("/jobs/batch", jobHandler.CreateJobsBatch)
 	api.Get("/jobs", jobHandler.GetJobs)
 	api.Get("/jobs/queue", jobHandler.GetQueue)
 	api.Get("/jobs/:id", jobHandler.GetJob)

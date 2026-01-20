@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/yourusername/datacollector/internal/exchange"
 	"github.com/yourusername/datacollector/internal/repository"
 )
 
@@ -47,4 +48,39 @@ func (h *HealthHandler) GetHealth(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(response)
+}
+
+// GetSupportedExchanges returns the list of exchanges supported by CCXT
+func (h *HealthHandler) GetSupportedExchanges(c *fiber.Ctx) error {
+	exchanges := exchange.GetSupportedExchanges()
+
+	return c.JSON(fiber.Map{
+		"exchanges": exchanges,
+		"count":     len(exchanges),
+	})
+}
+
+// TestExchangeAvailability tests which exchanges can be instantiated
+// This is useful for discovering which exchanges are available in the current CCXT build
+func (h *HealthHandler) TestExchangeAvailability(c *fiber.Ctx) error {
+	results := exchange.TestExchangeAvailability()
+
+	available := []string{}
+	unavailable := []string{}
+
+	for exchangeID, isAvailable := range results {
+		if isAvailable {
+			available = append(available, exchangeID)
+		} else {
+			unavailable = append(unavailable, exchangeID)
+		}
+	}
+
+	return c.JSON(fiber.Map{
+		"available":        available,
+		"unavailable":      unavailable,
+		"available_count":  len(available),
+		"unavailable_count": len(unavailable),
+		"results":          results,
+	})
 }

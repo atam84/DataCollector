@@ -6,45 +6,64 @@ import {
   PauseIcon,
   PlayIcon,
   TrashIcon,
-  PlusIcon
+  PlusIcon,
+  PencilIcon
 } from '@heroicons/react/24/outline'
 import IndicatorConfig from './IndicatorConfig'
+import ConnectorWizard from './ConnectorWizard'
 
 const API_BASE = '/api/v1'
 
 function ConnectorList({ connectors, onRefresh, loading }) {
-  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showCreateWizard, setShowCreateWizard] = useState(false)
   const [showConfigModal, setShowConfigModal] = useState(false)
+  const [showEditRateLimit, setShowEditRateLimit] = useState(false)
   const [selectedConnector, setSelectedConnector] = useState(null)
   const [indicatorConfig, setIndicatorConfig] = useState(null)
   const [loadingConfig, setLoadingConfig] = useState(false)
   const [recalculating, setRecalculating] = useState(new Set())
-  const [formData, setFormData] = useState({
-    exchange_id: 'binance',
-    display_name: '',
-    sandbox_mode: true,
-    rate_limit: {
-      limit: 1200,
-      period_ms: 60000
-    }
-  })
+  const [editRateLimit, setEditRateLimit] = useState(1200)
   const [submitting, setSubmitting] = useState(false)
 
-  const handleCreate = async (e) => {
-    e.preventDefault()
-    setSubmitting(true)
+  const handleWizardSave = async (connectorData, indicatorConfig) => {
     try {
-      await axios.post(`${API_BASE}/connectors`, formData)
-      setShowCreateModal(false)
-      setFormData({
-        exchange_id: 'binance',
-        display_name: '',
-        sandbox_mode: true,
-        rate_limit: { limit: 1200, period_ms: 60000 }
-      })
+      // Create connector
+      const response = await axios.post(`${API_BASE}/connectors`, connectorData)
+      const createdConnector = response.data
+
+      // If indicator config provided, save it
+      if (indicatorConfig && Object.keys(indicatorConfig).length > 0) {
+        await axios.put(`${API_BASE}/connectors/${createdConnector.id}/indicators/config`, indicatorConfig)
+      }
+
       onRefresh()
     } catch (err) {
-      alert('Failed to create connector: ' + (err.response?.data?.error || err.message))
+      throw new Error(err.response?.data?.error || err.message)
+    }
+  }
+
+  const openEditRateLimit = (connector) => {
+    setSelectedConnector(connector)
+    setEditRateLimit(connector.rate_limit?.limit || 1200)
+    setShowEditRateLimit(true)
+  }
+
+  const saveRateLimit = async () => {
+    if (!selectedConnector) return
+
+    setSubmitting(true)
+    try {
+      await axios.put(`${API_BASE}/connectors/${selectedConnector.id}`, {
+        ...selectedConnector,
+        rate_limit: {
+          ...selectedConnector.rate_limit,
+          limit: editRateLimit
+        }
+      })
+      setShowEditRateLimit(false)
+      onRefresh()
+    } catch (err) {
+      alert('Failed to update rate limit: ' + (err.response?.data?.error || err.message))
     } finally {
       setSubmitting(false)
     }
@@ -146,7 +165,7 @@ function ConnectorList({ connectors, onRefresh, loading }) {
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-900">Connectors</h2>
         <button
-          onClick={() => setShowCreateModal(true)}
+          onClick={() => setShowCreateWizard(true)}
           className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
           title="New Connector"
         >
@@ -263,6 +282,13 @@ function ConnectorList({ connectors, onRefresh, loading }) {
                 >
                   <ArrowPathIcon className={`w-5 h-5 ${recalculating.has(connector.id) ? 'animate-spin' : ''}`} />
                 </button>
+                <button
+                  onClick={() => openEditRateLimit(connector)}
+                  className="flex-1 py-2 bg-cyan-500 text-white text-sm rounded hover:bg-cyan-600 transition flex items-center justify-center"
+                  title="Edit rate limit"
+                >
+                  <PencilIcon className="w-5 h-5" />
+                </button>
               </div>
 
               {/* Actions */}
@@ -297,8 +323,60 @@ function ConnectorList({ connectors, onRefresh, loading }) {
         </div>
       )}
 
-      {/* Create Modal */}
-      {showCreateModal && (
+      {/* Connector Creation Wizard */}
+      {showCreateWizard && (
+        <ConnectorWizard
+          onClose={() => setShowCreateWizard(false)}
+          onSave={handleWizardSave}
+        />
+      )}
+
+      {/* Edit Rate Limit Modal */}
+      {showEditRateLimit && selectedConnector && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-xl font-bold mb-4">Edit Rate Limit</h3>
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-2">
+                Connector: <span className="font-medium">{selectedConnector.display_name}</span>
+              </p>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Rate Limit (requests per minute)
+              </label>
+              <input
+                type="number"
+                value={editRateLimit}
+                onChange={(e) => setEditRateLimit(parseInt(e.target.value))}
+                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                min="1"
+                max="10000"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Current: {selectedConnector.rate_limit?.limit || 'Not set'}
+              </p>
+            </div>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setShowEditRateLimit(false)}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 transition"
+                disabled={submitting}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveRateLimit}
+                className="flex-1 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50"
+                disabled={submitting}
+              >
+                {submitting ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Old Create Modal (REMOVED) */}
+      {false && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <h3 className="text-xl font-bold mb-4">Create New Connector</h3>
