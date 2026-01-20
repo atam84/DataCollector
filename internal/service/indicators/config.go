@@ -8,23 +8,46 @@ import "github.com/yourusername/datacollector/internal/models"
 // Rules:
 // 1. If job config exists for an indicator, use it
 // 2. If job config doesn't exist but connector config does, use connector config
-// 3. If neither exists, use system defaults
+// 3. If neither exists, use system defaults ONLY if no configs are provided at all
 // 4. If an indicator is explicitly disabled at job level, it stays disabled even if connector enables it
 func MergeConfigs(connectorConfig, jobConfig *models.IndicatorConfig) *models.IndicatorConfig {
-	// Start with system defaults
-	merged := DefaultConfig()
+	// If both configs are nil/empty, use defaults
+	if (connectorConfig == nil || isEmptyConfig(connectorConfig)) &&
+		(jobConfig == nil || isEmptyConfig(jobConfig)) {
+		return DefaultConfig()
+	}
 
-	// Apply connector config if exists
+	// Start with an empty config (no indicators enabled by default)
+	merged := &models.IndicatorConfig{}
+
+	// Apply connector config first (base level)
 	if connectorConfig != nil {
 		applyConnectorConfig(merged, connectorConfig)
 	}
 
-	// Apply job config if exists (overrides connector)
+	// Apply job config (overrides connector)
 	if jobConfig != nil {
 		applyJobConfig(merged, jobConfig)
 	}
 
 	return merged
+}
+
+// isEmptyConfig checks if a config has any indicators configured
+func isEmptyConfig(config *models.IndicatorConfig) bool {
+	if config == nil {
+		return true
+	}
+	// Check if any indicator field is set
+	return config.SMA == nil && config.EMA == nil && config.DEMA == nil &&
+		config.TEMA == nil && config.WMA == nil && config.HMA == nil &&
+		config.VWMA == nil && config.Ichimoku == nil && config.ADX == nil &&
+		config.SuperTrend == nil && config.RSI == nil && config.Stochastic == nil &&
+		config.MACD == nil && config.ROC == nil && config.CCI == nil &&
+		config.WilliamsR == nil && config.Momentum == nil && config.Bollinger == nil &&
+		config.ATR == nil && config.Keltner == nil && config.Donchian == nil &&
+		config.StdDev == nil && config.OBV == nil && config.VWAP == nil &&
+		config.MFI == nil && config.CMF == nil && config.VolumeSMA == nil
 }
 
 // applyConnectorConfig applies connector-level configuration to the merged config
