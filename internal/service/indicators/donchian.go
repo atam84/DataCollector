@@ -15,7 +15,7 @@ type DonchianResult struct {
 // Middle = (Upper + Lower) / 2
 func CalculateDonchian(candles []models.Candle, period int) *DonchianResult {
 	n := len(candles)
-	if n < period {
+	if period <= 0 || n < period {
 		return &DonchianResult{
 			Upper:  nanSlice(n),
 			Middle: nanSlice(n),

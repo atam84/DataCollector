@@ -7,7 +7,7 @@ import "github.com/yourusername/datacollector/internal/models"
 // Positive values indicate buying pressure, negative indicate selling pressure
 func CalculateCMF(candles []models.Candle, period int) []float64 {
 	n := len(candles)
-	if n < period {
+	if period <= 0 || n < period {
 		return nanSlice(n)
 	}
 

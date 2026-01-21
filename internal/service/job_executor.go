@@ -29,7 +29,7 @@ func NewJobExecutor(jobRepo *repository.JobRepository, connectorRepo *repository
 		connectorRepo:    connectorRepo,
 		ohlcvRepo:        ohlcvRepo,
 		config:           cfg,
-		ccxtService:      NewCCXTService(cfg.Exchange.SandboxMode),
+		ccxtService:      NewCCXTService(),
 		indicatorService: indicators.NewService(),
 	}
 }
@@ -121,26 +121,17 @@ func (e *JobExecutor) ExecuteJob(ctx context.Context, jobID string) (*models.Job
 		}, nil
 	}
 
-	// Calculate indicators for the fetched candles
+	// Calculate ALL indicators for the fetched candles
 	if len(candles) > 0 {
-		log.Printf("[EXEC] Calculating indicators for %d candles", len(candles))
+		log.Printf("[EXEC] Calculating all indicators for %d candles", len(candles))
 
-		// Get merged indicator configuration (Job overrides Connector)
-		indicatorConfig := indicators.GetEffectiveConfig(connector.IndicatorConfig, job.IndicatorConfig)
-
-		// Validate configuration
-		if err := e.indicatorService.ValidateConfig(indicatorConfig); err != nil {
-			log.Printf("[EXEC] Warning: Invalid indicator configuration: %v", err)
-			indicatorConfig = indicators.DefaultConfig() // Fallback to defaults
-		}
-
-		// Calculate indicators
-		candles, err = e.indicatorService.CalculateAll(candles, indicatorConfig)
+		// Calculate all indicators with default periods
+		candles, err = e.indicatorService.CalculateAll(candles)
 		if err != nil {
 			log.Printf("[EXEC] Warning: Indicator calculation failed: %v", err)
 			// Continue with storing candles even if indicator calculation fails
 		} else {
-			log.Printf("[EXEC] Indicators calculated successfully with config priority: Job > Connector > Defaults")
+			log.Printf("[EXEC] All indicators calculated successfully")
 		}
 	}
 
@@ -235,7 +226,6 @@ func (e *JobExecutor) FetchOHLCVData(connector *models.Connector, job *models.Jo
 		job.Symbol,
 		job.Timeframe,
 		sinceMs, // nil for first, timestamp for subsequent
-		connector.SandboxMode,
 	)
 
 	if err != nil {

@@ -7,7 +7,7 @@ import "github.com/yourusername/datacollector/internal/models"
 // More responsive than EMA, less lag
 func CalculateDEMA(candles []models.Candle, period int, source string) []float64 {
 	n := len(candles)
-	if n < period*2 {
+	if period <= 0 || n < period*2 {
 		return nanSlice(n)
 	}
 

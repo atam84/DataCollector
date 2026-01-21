@@ -207,12 +207,3 @@ func (r *ConnectorRepository) AcquireRateLimitToken(ctx context.Context, exchang
 
 	return result.ModifiedCount > 0, nil
 }
-
-// UpdateSandboxMode updates the sandbox mode for a connector
-func (r *ConnectorRepository) UpdateSandboxMode(ctx context.Context, id string, sandboxMode bool) error {
-	update := bson.M{
-		"sandbox_mode": sandboxMode,
-	}
-
-	return r.Update(ctx, id, update)
-}

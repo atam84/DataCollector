@@ -31,9 +31,8 @@ type DatabaseConfig struct {
 
 // ExchangeConfig holds exchange-related configuration
 type ExchangeConfig struct {
-	SandboxMode      bool
-	EnableRateLimit  bool
-	RequestTimeout   int // in milliseconds
+	EnableRateLimit bool
+	RequestTimeout  int // in milliseconds
 }
 
 // HistoricalDataConfig holds configuration for historical data fetching
@@ -69,7 +68,6 @@ func Load() (*Config, error) {
 			Database: getEnv("MONGODB_DATABASE", "datacollector"),
 		},
 		Exchange: ExchangeConfig{
-			SandboxMode:     getEnvBool("EXCHANGE_SANDBOX_MODE", true), // Default to sandbox for safety
 			EnableRateLimit: getEnvBool("EXCHANGE_ENABLE_RATE_LIMIT", true),
 			RequestTimeout:  getEnvInt("EXCHANGE_REQUEST_TIMEOUT", 30000),
 		},

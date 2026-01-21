@@ -19,7 +19,7 @@ type BollingerResult struct {
 // Returns upper, middle (SMA), lower bands, bandwidth, and %B
 func CalculateBollingerBands(candles []models.Candle, period int, stdDev float64, source string) *BollingerResult {
 	n := len(candles)
-	if n < period {
+	if period <= 0 || n < period {
 		return &BollingerResult{
 			Upper:     nanSlice(n),
 			Middle:    nanSlice(n),

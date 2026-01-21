@@ -12,7 +12,6 @@ type Connector struct {
 	ExchangeID  string             `bson:"exchange_id" json:"exchange_id"`
 	DisplayName string             `bson:"display_name" json:"display_name"`
 	Status      string             `bson:"status" json:"status"` // "active", "disabled"
-	SandboxMode bool               `bson:"sandbox_mode" json:"sandbox_mode"`
 	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
 	UpdatedAt   time.Time          `bson:"updated_at" json:"updated_at"`
 
@@ -20,9 +19,6 @@ type Connector struct {
 
 	// Credentials reference (keys stored in environment variables)
 	CredentialsRef CredentialsRef `bson:"credentials_ref,omitempty" json:"credentials_ref,omitempty"`
-
-	// Indicator configuration (default for all jobs using this connector)
-	IndicatorConfig *IndicatorConfig `bson:"indicator_config,omitempty" json:"indicator_config,omitempty"`
 }
 
 // RateLimit holds rate limiting configuration and state
@@ -44,7 +40,6 @@ type CredentialsRef struct {
 type ConnectorCreateRequest struct {
 	ExchangeID  string `json:"exchange_id" validate:"required"`
 	DisplayName string `json:"display_name" validate:"required"`
-	SandboxMode bool   `json:"sandbox_mode"`
 	RateLimit   struct {
 		Limit    int `json:"limit" validate:"required,min=1"`
 		PeriodMs int `json:"period_ms" validate:"required,min=1000"`
@@ -55,7 +50,6 @@ type ConnectorCreateRequest struct {
 type ConnectorUpdateRequest struct {
 	DisplayName *string `json:"display_name,omitempty"`
 	Status      *string `json:"status,omitempty" validate:"omitempty,oneof=active disabled"`
-	SandboxMode *bool   `json:"sandbox_mode,omitempty"`
 	RateLimit   *struct {
 		Limit    *int `json:"limit,omitempty" validate:"omitempty,min=1"`
 		PeriodMs *int `json:"period_ms,omitempty" validate:"omitempty,min=1000"`

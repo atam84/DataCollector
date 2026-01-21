@@ -75,10 +75,9 @@ func main() {
 		}
 
 		return c.JSON(fiber.Map{
-			"status": "ok",
+			"status":    "ok",
 			"timestamp": time.Now().Unix(),
-			"database": dbStatus,
-			"sandbox_mode": cfg.Exchange.SandboxMode,
+			"database":  dbStatus,
 		})
 	})
 
@@ -116,14 +115,8 @@ func main() {
 	api.Get("/connectors/:id", connectorHandler.GetConnector)
 	api.Put("/connectors/:id", connectorHandler.UpdateConnector)
 	api.Delete("/connectors/:id", connectorHandler.DeleteConnector)
-	api.Patch("/connectors/:id/sandbox", connectorHandler.ToggleSandboxMode)
 	api.Post("/connectors/:id/suspend", connectorHandler.SuspendConnector)
 	api.Post("/connectors/:id/resume", connectorHandler.ResumeConnector)
-
-	// Connector indicator configuration routes
-	api.Get("/connectors/:id/indicators/config", connectorHandler.GetIndicatorConfig)
-	api.Put("/connectors/:id/indicators/config", connectorHandler.UpdateIndicatorConfig)
-	api.Patch("/connectors/:id/indicators/config", connectorHandler.PatchIndicatorConfig)
 
 	// Job routes (queue and batch routes MUST come before :id routes)
 	api.Post("/jobs", jobHandler.CreateJob)
@@ -136,11 +129,6 @@ func main() {
 	api.Post("/jobs/:id/pause", jobHandler.PauseJob)
 	api.Post("/jobs/:id/resume", jobHandler.ResumeJob)
 	api.Post("/jobs/:id/execute", jobHandler.ExecuteJob)
-
-	// Job indicator configuration routes
-	api.Get("/jobs/:id/indicators/config", jobHandler.GetIndicatorConfig)
-	api.Put("/jobs/:id/indicators/config", jobHandler.UpdateIndicatorConfig)
-	api.Patch("/jobs/:id/indicators/config", jobHandler.PatchIndicatorConfig)
 
 	// Job data export routes
 	api.Get("/jobs/:id/ohlcv", jobHandler.GetJobOHLCVData)
@@ -161,7 +149,7 @@ func main() {
 
 	// Start server
 	address := fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port)
-	log.Printf("Starting server on %s (Sandbox Mode: %v)", address, cfg.Exchange.SandboxMode)
+	log.Printf("Starting server on %s", address)
 
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)

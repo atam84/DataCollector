@@ -13,7 +13,7 @@ type SuperTrendResult struct {
 // It provides dynamic support/resistance levels
 func CalculateSuperTrend(candles []models.Candle, period int, multiplier float64) *SuperTrendResult {
 	n := len(candles)
-	if n < period+1 {
+	if period <= 0 || n < period+1 {
 		return &SuperTrendResult{
 			SuperTrend: nanSlice(n),
 			Signal:     make([]int, n),

@@ -18,7 +18,7 @@ type ADXResult struct {
 // +DI and -DI show trend direction
 func CalculateADX(candles []models.Candle, period int) *ADXResult {
 	n := len(candles)
-	if n < period*2 {
+	if period <= 0 || n < period*2 {
 		return &ADXResult{
 			ADX:     nanSlice(n),
 			PlusDI:  nanSlice(n),

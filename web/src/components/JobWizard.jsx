@@ -4,7 +4,6 @@ import {
   ArrowRightIcon,
   CheckIcon
 } from '@heroicons/react/24/outline'
-import IndicatorConfig from './IndicatorConfig'
 
 const POPULAR_PAIRS = [
   'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT',
@@ -30,8 +29,6 @@ function JobWizard({ connectors, onClose, onSave }) {
   const [selectedPairs, setSelectedPairs] = useState([])
   const [customPair, setCustomPair] = useState('')
   const [selectedTimeframes, setSelectedTimeframes] = useState([])
-  const [indicatorConfig, setIndicatorConfig] = useState({})
-  const [useConnectorIndicators, setUseConnectorIndicators] = useState(true)
   const [saving, setSaving] = useState(false)
 
   const handleNext = () => {
@@ -41,10 +38,6 @@ function JobWizard({ connectors, onClose, onSave }) {
     }
     if (currentStep === 2 && selectedPairs.length === 0) {
       alert('Please select at least one cryptocurrency pair')
-      return
-    }
-    if (currentStep === 3 && selectedTimeframes.length === 0) {
-      alert('Please select at least one timeframe')
       return
     }
     setCurrentStep(currentStep + 1)
@@ -78,11 +71,13 @@ function JobWizard({ connectors, onClose, onSave }) {
   }
 
   const handleCreateJobs = async () => {
+    if (selectedTimeframes.length === 0) {
+      alert('Please select at least one timeframe')
+      return
+    }
+
     setSaving(true)
     try {
-      // Calculate total jobs to create
-      const totalJobs = selectedPairs.length * selectedTimeframes.length
-
       // Prepare jobs data
       const jobs = []
       for (const pair of selectedPairs) {
@@ -91,8 +86,7 @@ function JobWizard({ connectors, onClose, onSave }) {
             connector_exchange_id: selectedConnector,
             symbol: pair,
             timeframe: timeframe,
-            status: 'active',
-            indicator_config: useConnectorIndicators ? null : indicatorConfig
+            status: 'active'
           })
         }
       }
@@ -121,7 +115,7 @@ function JobWizard({ connectors, onClose, onSave }) {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-2xl font-bold text-white">Create Multiple Jobs</h3>
-              <p className="text-green-100 mt-1">Step {currentStep} of 4</p>
+              <p className="text-green-100 mt-1">Step {currentStep} of 3</p>
               {totalJobs > 0 && (
                 <p className="text-white font-medium mt-2">
                   Will create {totalJobs} job{totalJobs !== 1 ? 's' : ''}
@@ -142,7 +136,6 @@ function JobWizard({ connectors, onClose, onSave }) {
             <div className={`flex-1 h-2 rounded ${currentStep >= 1 ? 'bg-white' : 'bg-green-300'}`} />
             <div className={`flex-1 h-2 rounded ${currentStep >= 2 ? 'bg-white' : 'bg-green-300'}`} />
             <div className={`flex-1 h-2 rounded ${currentStep >= 3 ? 'bg-white' : 'bg-green-300'}`} />
-            <div className={`flex-1 h-2 rounded ${currentStep >= 4 ? 'bg-white' : 'bg-green-300'}`} />
           </div>
         </div>
 
@@ -179,7 +172,6 @@ function JobWizard({ connectors, onClose, onSave }) {
                     </div>
                     <div className="text-sm text-gray-600">
                       <div>Exchange: {connector.exchange_id}</div>
-                      <div>Mode: {connector.sandbox_mode ? 'Sandbox' : 'Production'}</div>
                       <div>Jobs: {connector.job_count || 0}</div>
                     </div>
                   </button>
@@ -282,7 +274,7 @@ function JobWizard({ connectors, onClose, onSave }) {
             </div>
           )}
 
-          {/* Step 3: Timeframe Selection */}
+          {/* Step 3: Timeframe Selection & Summary */}
           {currentStep === 3 && (
             <div>
               <h4 className="text-lg font-bold text-gray-900 mb-4">Select Timeframes</h4>
@@ -324,45 +316,6 @@ function JobWizard({ connectors, onClose, onSave }) {
                   </div>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* Step 4: Indicator Configuration */}
-          {currentStep === 4 && (
-            <div>
-              <h4 className="text-lg font-bold text-gray-900 mb-4">Indicator Configuration</h4>
-              <p className="text-sm text-gray-600 mb-6">
-                Configure indicators for all jobs or inherit from connector
-              </p>
-
-              {/* Option: Use Connector Settings */}
-              <div className="mb-6">
-                <label className="flex items-center space-x-3 p-4 border-2 border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={useConnectorIndicators}
-                    onChange={(e) => setUseConnectorIndicators(e.target.checked)}
-                    className="w-5 h-5 text-green-600 rounded focus:ring-green-500"
-                  />
-                  <div>
-                    <span className="font-medium text-gray-900">Use Connector's Indicator Configuration</span>
-                    <p className="text-sm text-gray-500">
-                      Jobs will inherit indicator settings from {getConnectorName()}
-                    </p>
-                  </div>
-                </label>
-              </div>
-
-              {/* Custom Indicators */}
-              {!useConnectorIndicators && (
-                <div>
-                  <IndicatorConfig
-                    config={indicatorConfig}
-                    onChange={setIndicatorConfig}
-                    isJobLevel={true}
-                  />
-                </div>
-              )}
 
               {/* Summary */}
               <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-6">
@@ -370,9 +323,13 @@ function JobWizard({ connectors, onClose, onSave }) {
                 <div className="space-y-2 text-sm text-blue-800">
                   <div><strong>Connector:</strong> {getConnectorName()}</div>
                   <div><strong>Pairs:</strong> {selectedPairs.join(', ')}</div>
-                  <div><strong>Timeframes:</strong> {selectedTimeframes.map(tf => TIMEFRAMES.find(t => t.id === tf)?.label).join(', ')}</div>
+                  <div><strong>Timeframes:</strong> {selectedTimeframes.map(tf => TIMEFRAMES.find(t => t.id === tf)?.label).join(', ') || 'None selected'}</div>
                   <div><strong>Total Jobs:</strong> {totalJobs}</div>
-                  <div><strong>Indicators:</strong> {useConnectorIndicators ? 'Inherit from connector' : 'Custom configuration'}</div>
+                </div>
+                <div className="mt-4 p-3 bg-blue-100 rounded-lg">
+                  <p className="text-sm text-blue-800">
+                    <strong>Note:</strong> All technical indicators will be automatically calculated for collected data.
+                  </p>
                 </div>
               </div>
             </div>
@@ -396,7 +353,7 @@ function JobWizard({ connectors, onClose, onSave }) {
             </div>
 
             <div className="flex space-x-3">
-              {currentStep < 4 && (
+              {currentStep < 3 && (
                 <button
                   onClick={handleNext}
                   className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center"
@@ -407,7 +364,7 @@ function JobWizard({ connectors, onClose, onSave }) {
                 </button>
               )}
 
-              {currentStep === 4 && (
+              {currentStep === 3 && (
                 <button
                   onClick={handleCreateJobs}
                   className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center"

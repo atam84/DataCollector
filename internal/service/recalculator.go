@@ -44,7 +44,7 @@ func (r *RecalculatorService) RecalculateJob(ctx context.Context, jobID string) 
 		return fmt.Errorf("failed to find job: %w", err)
 	}
 
-	// Fetch connector to get indicator configuration
+	// Fetch connector to get exchange ID
 	connector, err := r.connectorRepo.FindByExchangeID(ctx, job.ConnectorExchangeID)
 	if err != nil {
 		return fmt.Errorf("failed to find connector: %w", err)
@@ -63,17 +63,8 @@ func (r *RecalculatorService) RecalculateJob(ctx context.Context, jobID string) 
 
 	log.Printf("[RECALC] Found %d candles for job %s", len(ohlcvDoc.Candles), jobID)
 
-	// Get merged indicator configuration
-	indicatorConfig := indicators.GetEffectiveConfig(connector.IndicatorConfig, job.IndicatorConfig)
-
-	// Validate configuration
-	if err := r.indicatorService.ValidateConfig(indicatorConfig); err != nil {
-		log.Printf("[RECALC] Warning: Invalid indicator configuration: %v", err)
-		indicatorConfig = indicators.DefaultConfig()
-	}
-
-	// Recalculate indicators for all candles
-	candles, err := r.indicatorService.CalculateAll(ohlcvDoc.Candles, indicatorConfig)
+	// Recalculate all indicators for all candles
+	candles, err := r.indicatorService.CalculateAll(ohlcvDoc.Candles)
 	if err != nil {
 		return fmt.Errorf("failed to calculate indicators: %w", err)
 	}

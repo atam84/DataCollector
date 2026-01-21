@@ -7,7 +7,7 @@ import "github.com/yourusername/datacollector/internal/models"
 // Even more responsive than DEMA, minimal lag
 func CalculateTEMA(candles []models.Candle, period int, source string) []float64 {
 	n := len(candles)
-	if n < period*3 {
+	if period <= 0 || n < period*3 {
 		return nanSlice(n)
 	}
 

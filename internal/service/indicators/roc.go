@@ -7,7 +7,7 @@ import "github.com/yourusername/datacollector/internal/models"
 // Measures percentage change in price over period
 func CalculateROC(candles []models.Candle, period int, source string) []float64 {
 	n := len(candles)
-	if n < period+1 {
+	if period <= 0 || n < period+1 {
 		return nanSlice(n)
 	}
 

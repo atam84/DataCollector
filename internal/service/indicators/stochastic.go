@@ -13,7 +13,7 @@ type StochasticResult struct {
 // Values range from 0 to 100
 func CalculateStochastic(candles []models.Candle, kPeriod, dPeriod, smooth int) *StochasticResult {
 	n := len(candles)
-	if n < kPeriod+dPeriod {
+	if kPeriod <= 0 || dPeriod <= 0 || n < kPeriod+dPeriod {
 		return &StochasticResult{
 			K: nanSlice(n),
 			D: nanSlice(n),

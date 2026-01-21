@@ -11,7 +11,7 @@ import (
 // Identifies cyclical trends, typically oscillates between -100 and +100
 func CalculateCCI(candles []models.Candle, period int) []float64 {
 	n := len(candles)
-	if n < period {
+	if period <= 0 || n < period {
 		return nanSlice(n)
 	}
 

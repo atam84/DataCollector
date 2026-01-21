@@ -11,15 +11,11 @@ import (
 )
 
 // CCXTService handles interactions with CCXT exchange library
-type CCXTService struct {
-	sandboxMode bool
-}
+type CCXTService struct{}
 
 // NewCCXTService creates a new CCXT service
-func NewCCXTService(sandboxMode bool) *CCXTService {
-	return &CCXTService{
-		sandboxMode: sandboxMode,
-	}
+func NewCCXTService() *CCXTService {
+	return &CCXTService{}
 }
 
 // FetchOHLCVData fetches real OHLCV data from an exchange using CCXT
@@ -30,7 +26,6 @@ func (s *CCXTService) FetchOHLCVData(
 	symbol string,
 	timeframe string,
 	sinceMs *int64, // nil for first fetch, timestamp for subsequent
-	sandboxMode bool,
 ) ([]models.Candle, error) {
 
 	if sinceMs == nil {
@@ -47,9 +42,9 @@ func (s *CCXTService) FetchOHLCVData(
 
 	switch strings.ToLower(exchangeID) {
 	case "bybit":
-		ohlcvData, err = s.fetchFromBybit(symbol, timeframe, sinceMs, sandboxMode)
+		ohlcvData, err = s.fetchFromBybit(symbol, timeframe, sinceMs)
 	case "binance":
-		ohlcvData, err = s.fetchFromBinance(symbol, timeframe, sinceMs, sandboxMode)
+		ohlcvData, err = s.fetchFromBinance(symbol, timeframe, sinceMs)
 	default:
 		return nil, fmt.Errorf("exchange %s not yet supported", exchangeID)
 	}
@@ -69,7 +64,7 @@ func (s *CCXTService) FetchOHLCVData(
 }
 
 // fetchFromBybit fetches OHLCV data from Bybit
-func (s *CCXTService) fetchFromBybit(symbol string, timeframe string, sinceMs *int64, sandboxMode bool) (interface{}, error) {
+func (s *CCXTService) fetchFromBybit(symbol string, timeframe string, sinceMs *int64) (interface{}, error) {
 	exchange := ccxt.NewBybit(nil)
 
 	// Load API credentials from environment if available
@@ -80,12 +75,6 @@ func (s *CCXTService) fetchFromBybit(symbol string, timeframe string, sinceMs *i
 		log.Printf("[CCXT] Using API credentials for Bybit")
 		exchange.SetApiKey(apiKey)
 		exchange.SetSecret(apiSecret)
-	}
-
-	// Enable sandbox mode if requested
-	if sandboxMode {
-		log.Printf("[CCXT] Enabling sandbox mode for Bybit")
-		exchange.SetSandboxMode(true)
 	}
 
 	// Build options - only include since if provided, NEVER include limit
@@ -114,7 +103,7 @@ func (s *CCXTService) fetchFromBybit(symbol string, timeframe string, sinceMs *i
 }
 
 // fetchFromBinance fetches OHLCV data from Binance
-func (s *CCXTService) fetchFromBinance(symbol string, timeframe string, sinceMs *int64, sandboxMode bool) (interface{}, error) {
+func (s *CCXTService) fetchFromBinance(symbol string, timeframe string, sinceMs *int64) (interface{}, error) {
 	exchange := ccxt.NewBinance(nil)
 
 	// Load API credentials from environment if available
@@ -125,12 +114,6 @@ func (s *CCXTService) fetchFromBinance(symbol string, timeframe string, sinceMs 
 		log.Printf("[CCXT] Using API credentials for Binance")
 		exchange.SetApiKey(apiKey)
 		exchange.SetSecret(apiSecret)
-	}
-
-	// Enable sandbox mode if requested
-	if sandboxMode {
-		log.Printf("[CCXT] Enabling sandbox mode for Binance")
-		exchange.SetSandboxMode(true)
 	}
 
 	// Build options - only include since if provided, NEVER include limit

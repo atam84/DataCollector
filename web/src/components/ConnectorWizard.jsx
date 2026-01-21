@@ -1,11 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
-import {
-  ArrowLeftIcon,
-  ArrowRightIcon,
-  CheckIcon
-} from '@heroicons/react/24/outline'
-import IndicatorConfig from './IndicatorConfig'
+import { CheckIcon } from '@heroicons/react/24/outline'
 
 const API_BASE = '/api/v1'
 
@@ -36,19 +31,16 @@ const EXCHANGE_NAMES = {
 }
 
 function ConnectorWizard({ onClose, onSave }) {
-  const [currentStep, setCurrentStep] = useState(1)
   const [supportedExchanges, setSupportedExchanges] = useState([])
   const [loadingExchanges, setLoadingExchanges] = useState(true)
   const [formData, setFormData] = useState({
     exchange_id: '',
     display_name: '',
-    sandbox_mode: true,
     rate_limit: {
       limit: 1200,
       period_ms: 60000
     }
   })
-  const [indicatorConfig, setIndicatorConfig] = useState({})
   const [saving, setSaving] = useState(false)
 
   // Fetch supported exchanges from API
@@ -96,37 +88,16 @@ function ConnectorWizard({ onClose, onSave }) {
     })
   }
 
-  const handleNext = () => {
-    if (currentStep === 1) {
-      // Validate step 1
-      if (!formData.exchange_id || !formData.display_name) {
-        alert('Please select an exchange and provide a display name')
-        return
-      }
+  const handleSave = async () => {
+    // Validate form
+    if (!formData.exchange_id || !formData.display_name) {
+      alert('Please select an exchange and provide a display name')
+      return
     }
-    setCurrentStep(currentStep + 1)
-  }
 
-  const handleBack = () => {
-    setCurrentStep(currentStep - 1)
-  }
-
-  const handleSaveAndClose = async () => {
     setSaving(true)
     try {
-      await onSave(formData, null) // Save without indicators
-      onClose()
-    } catch (err) {
-      alert('Failed to save connector: ' + err.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleSaveWithIndicators = async () => {
-    setSaving(true)
-    try {
-      await onSave(formData, indicatorConfig)
+      await onSave(formData)
       onClose()
     } catch (err) {
       alert('Failed to save connector: ' + err.message)
@@ -137,13 +108,13 @@ function ConnectorWizard({ onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg w-full max-w-5xl max-h-[95vh] overflow-hidden flex flex-col">
+      <div className="bg-white rounded-lg w-full max-w-2xl max-h-[95vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="p-6 border-b bg-gradient-to-r from-blue-500 to-indigo-600">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-2xl font-bold text-white">Create New Connector</h3>
-              <p className="text-blue-100 mt-1">Step {currentStep} of 2</p>
+              <p className="text-blue-100 mt-1">Configure exchange connection</p>
             </div>
             <button
               onClick={onClose}
@@ -153,180 +124,113 @@ function ConnectorWizard({ onClose, onSave }) {
               ×
             </button>
           </div>
-
-          {/* Progress Bar */}
-          <div className="mt-4 flex items-center space-x-2">
-            <div className={`flex-1 h-2 rounded ${currentStep >= 1 ? 'bg-white' : 'bg-blue-300'}`} />
-            <div className={`flex-1 h-2 rounded ${currentStep >= 2 ? 'bg-white' : 'bg-blue-300'}`} />
-          </div>
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
-          {/* Step 1: Exchange & Rate Limit */}
-          {currentStep === 1 && (
-            <div className="space-y-6">
-              <div>
-                <h4 className="text-lg font-bold text-gray-900 mb-4">Exchange Configuration</h4>
+          <div className="space-y-6">
+            <div>
+              <h4 className="text-lg font-bold text-gray-900 mb-4">Exchange Configuration</h4>
 
-                {/* Exchange Selection */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Select Exchange * {loadingExchanges && <span className="text-xs text-gray-500">(Loading...)</span>}
-                  </label>
-                  {supportedExchanges.length === 0 && !loadingExchanges && (
-                    <div className="text-sm text-red-600 mb-2">
-                      No exchanges available. Please check your CCXT installation.
-                    </div>
-                  )}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {supportedExchanges.map(exchange => (
-                      <button
-                        key={exchange.id}
-                        onClick={() => handleExchangeChange(exchange.id)}
-                        className={`p-4 border-2 rounded-lg text-center transition ${
-                          formData.exchange_id === exchange.id
-                            ? 'border-blue-500 bg-blue-50 text-blue-700'
-                            : 'border-gray-200 hover:border-blue-300 text-gray-700'
-                        }`}
-                      >
-                        <div className="font-semibold">{exchange.name}</div>
-                        <div className="text-xs text-gray-500 mt-1">
-                          {exchange.defaultRateLimit} req/min
-                        </div>
-                      </button>
-                    ))}
+              {/* Exchange Selection */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Exchange * {loadingExchanges && <span className="text-xs text-gray-500">(Loading...)</span>}
+                </label>
+                {supportedExchanges.length === 0 && !loadingExchanges && (
+                  <div className="text-sm text-red-600 mb-2">
+                    No exchanges available. Please check your CCXT installation.
                   </div>
-                </div>
-
-                {/* Display Name */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Display Name *
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.display_name}
-                    onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g., Binance Production"
-                    required
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    A friendly name to identify this connector
-                  </p>
-                </div>
-
-                {/* Rate Limit */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Rate Limit (requests per minute) *
-                  </label>
-                  <input
-                    type="number"
-                    value={formData.rate_limit.limit}
-                    onChange={(e) => setFormData({
-                      ...formData,
-                      rate_limit: { ...formData.rate_limit, limit: parseInt(e.target.value) }
-                    })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    min="1"
-                    max="10000"
-                    required
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Maximum API requests allowed per minute. Default varies by exchange.
-                  </p>
-                </div>
-
-                {/* Sandbox Mode */}
-                <div className="mb-6">
-                  <label className="flex items-center space-x-3 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.sandbox_mode}
-                      onChange={(e) => setFormData({ ...formData, sandbox_mode: e.target.checked })}
-                      className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500"
-                    />
-                    <div>
-                      <span className="font-medium text-gray-900">Enable Sandbox Mode (Testnet)</span>
-                      <p className="text-sm text-gray-500">
-                        Use test environment for development without real funds
-                      </p>
-                    </div>
-                  </label>
+                )}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {supportedExchanges.map(exchange => (
+                    <button
+                      key={exchange.id}
+                      onClick={() => handleExchangeChange(exchange.id)}
+                      className={`p-4 border-2 rounded-lg text-center transition ${
+                        formData.exchange_id === exchange.id
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-200 hover:border-blue-300 text-gray-700'
+                      }`}
+                    >
+                      <div className="font-semibold">{exchange.name}</div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {exchange.defaultRateLimit} req/min
+                      </div>
+                    </button>
+                  ))}
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* Step 2: Indicators */}
-          {currentStep === 2 && (
-            <div>
-              <div className="mb-4">
-                <h4 className="text-lg font-bold text-gray-900">Indicator Configuration</h4>
-                <p className="text-sm text-gray-600 mt-1">
-                  Configure default indicators for this connector. Jobs can override these settings.
+              {/* Display Name */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Display Name *
+                </label>
+                <input
+                  type="text"
+                  value={formData.display_name}
+                  onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g., Binance Production"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  A friendly name to identify this connector
                 </p>
               </div>
 
-              <IndicatorConfig
-                config={indicatorConfig}
-                onChange={setIndicatorConfig}
-                isJobLevel={false}
-              />
+              {/* Rate Limit */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Rate Limit (requests per minute) *
+                </label>
+                <input
+                  type="number"
+                  value={formData.rate_limit.limit}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    rate_limit: { ...formData.rate_limit, limit: parseInt(e.target.value) }
+                  })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  min="1"
+                  max="10000"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Maximum API requests allowed per minute. Default varies by exchange.
+                </p>
+              </div>
+
+              {/* Info about indicators */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  <strong>Note:</strong> All technical indicators will be automatically calculated for collected data.
+                  No configuration required.
+                </p>
+              </div>
             </div>
-          )}
+          </div>
         </div>
 
         {/* Footer */}
         <div className="p-6 border-t bg-gray-50">
-          <div className="flex justify-between items-center">
-            <div>
-              {currentStep > 1 && (
-                <button
-                  onClick={handleBack}
-                  className="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded-lg transition flex items-center"
-                  disabled={saving}
-                >
-                  <ArrowLeftIcon className="w-4 h-4 mr-2" />
-                  Back
-                </button>
-              )}
-            </div>
-
-            <div className="flex space-x-3">
-              {currentStep === 1 && (
-                <>
-                  <button
-                    onClick={handleSaveAndClose}
-                    className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition"
-                    disabled={saving}
-                  >
-                    Save & Close
-                  </button>
-                  <button
-                    onClick={handleNext}
-                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center"
-                    disabled={saving}
-                  >
-                    Next: Configure Indicators
-                    <ArrowRightIcon className="w-4 h-4 ml-2" />
-                  </button>
-                </>
-              )}
-
-              {currentStep === 2 && (
-                <button
-                  onClick={handleSaveWithIndicators}
-                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center"
-                  disabled={saving}
-                >
-                  <CheckIcon className="w-5 h-5 mr-2" />
-                  {saving ? 'Creating...' : 'Create Connector'}
-                </button>
-              )}
-            </div>
+          <div className="flex justify-end space-x-3">
+            <button
+              onClick={onClose}
+              className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition"
+              disabled={saving}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center"
+              disabled={saving}
+            >
+              <CheckIcon className="w-5 h-5 mr-2" />
+              {saving ? 'Creating...' : 'Create Connector'}
+            </button>
           </div>
         </div>
       </div>

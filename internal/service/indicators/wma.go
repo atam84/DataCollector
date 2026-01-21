@@ -6,7 +6,7 @@ import "github.com/yourusername/datacollector/internal/models"
 // Gives more weight to recent prices
 func CalculateWMA(candles []models.Candle, period int, source string) []float64 {
 	n := len(candles)
-	if n < period {
+	if period <= 0 || n < period {
 		return nanSlice(n)
 	}
 

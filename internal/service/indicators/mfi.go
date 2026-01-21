@@ -7,7 +7,7 @@ import "github.com/yourusername/datacollector/internal/models"
 // Above 80 indicates overbought, below 20 indicates oversold
 func CalculateMFI(candles []models.Candle, period int) []float64 {
 	n := len(candles)
-	if n < period+1 {
+	if period <= 0 || n < period+1 {
 		return nanSlice(n)
 	}
 

@@ -4,16 +4,18 @@ A cryptocurrency market data collection service that ingests OHLCV candles from 
 
 ## Features
 
-- ✅ Multi-exchange support via CCXT (100+ exchanges)
+- ✅ Multi-exchange support via CCXT (13 tested exchanges)
 - ✅ OHLCV candle collection with configurable timeframes
 - ✅ **Sandbox/Testnet mode with UI toggle**
-- ✅ Built-in rate limiting
+- ✅ Built-in rate limiting with token bucket
 - ✅ MongoDB storage with optimized indexes
-- ✅ RESTful API (15 endpoints)
-- ✅ React + Tailwind Admin UI
+- ✅ RESTful API (30+ endpoints)
+- ✅ React + Tailwind Admin UI with wizards
 - ✅ **Docker Compose deployment**
-- ✅ Technical indicators (RSI, EMA, MACD)
-- 🚧 Job scheduler and worker (coming soon)
+- ✅ **29 Technical indicators** (Trend, Momentum, Volatility, Volume)
+- ✅ **Job scheduler with distributed locking**
+- ✅ **Data export (CSV, JSON, ML-optimized)**
+- ✅ **Batch job operations**
 
 ## Architecture
 
@@ -250,36 +252,40 @@ See [CCXT-GO-PUBLIC-API-REFERENCE.md](./docs/CCXT-GO-PUBLIC-API-REFERENCE.md) fo
 - [x] Development mode support
 - [x] Health checks & networking
 
-**Phase 5 - Future Enhancements** 🚧
-- [ ] Job scheduler implementation
-- [ ] OHLCV ingestion worker
-- [ ] Indicator computation (RSI, EMA, MACD)
+**Phase 5 - Advanced Features** ✅
+- [x] Job scheduler with cron-like scheduling
+- [x] OHLCV ingestion with job executor
+- [x] 29 Technical indicators (Trend, Momentum, Volatility, Volume)
+- [x] Wizard-based connector & job creation
+- [x] Batch job operations (up to 100 jobs)
+- [x] Data export (CSV, JSON, ML-optimized)
+- [x] Job search, filtering, and details view
+- [x] Charts integration (Recharts)
+
+**Phase 6 - Future Enhancements** 🚧
+- [ ] Fix indicator configuration affectation
 - [ ] Authentication & authorization
 - [ ] Metrics & monitoring (Prometheus)
-- [ ] Unit & integration tests
+- [ ] WebSocket real-time updates
+- [ ] Strategy backtesting framework
 
 ## Documentation
 
 ### Quick Start & Guides
 - **[QUICKSTART.md](QUICKSTART.md)** - Get up and running in 3 minutes
 - **[DOCKER.md](DOCKER.md)** - Complete Docker deployment guide
-- **[STATUS.md](STATUS.md)** - Detailed implementation status
-- **[PROJECT-SUMMARY.md](PROJECT-SUMMARY.md)** - Complete project overview
+- **[TASKS-PENDING.md](TASKS-PENDING.md)** - Current tasks and known issues
 
-### Phase Summaries
-- **[PHASE2-COMPLETE.md](PHASE2-COMPLETE.md)** - Backend API completion summary
-- **[PHASE3-COMPLETE.md](PHASE3-COMPLETE.md)** - Frontend UI completion summary
+### Technical Indicators
+- **[INDICATORS-GUIDE.md](docs/INDICATORS-GUIDE.md)** - User-friendly indicator guide
+- **[INDICATORS-CATALOG.md](docs/INDICATORS-CATALOG.md)** - Technical specifications for all 29 indicators
 
-### API Documentation
-- **[API-ENDPOINTS.md](docs/04-API/API-ENDPOINTS.md)** - Complete API reference with examples
+### API & Integration
 - **[CCXT-GO-PUBLIC-API-REFERENCE.md](docs/CCXT-GO-PUBLIC-API-REFERENCE.md)** - CCXT Go library guide
+- **[CCXT-GO-REFERENCE.md](docs/CCXT-GO-REFERENCE.md)** - Quick CCXT reference
 
 ### Frontend
 - **[web/README.md](web/README.md)** - Frontend documentation
-
-### Architecture & Requirements
-- **[PRD](docs/01-PRD/PRD-DataCollector-v3.1.md)** - Product requirements document
-- **[Architecture](docs/02-Architecture/ARCH-Backend-v1.1.md)** - Backend architecture
 
 ## Contributing
 

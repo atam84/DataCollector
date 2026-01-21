@@ -8,7 +8,7 @@ import "github.com/yourusername/datacollector/internal/models"
 // Values above -20 indicate overbought, below -80 indicate oversold
 func CalculateWilliamsR(candles []models.Candle, period int) []float64 {
 	n := len(candles)
-	if n < period {
+	if period <= 0 || n < period {
 		return nanSlice(n)
 	}
 

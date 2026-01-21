@@ -19,9 +19,6 @@ type Job struct {
 	Schedule Schedule `bson:"schedule" json:"schedule"`
 	Cursor   Cursor   `bson:"cursor" json:"cursor"`
 	RunState RunState `bson:"run_state" json:"run_state"`
-
-	// Indicator configuration (overrides connector defaults if specified)
-	IndicatorConfig *IndicatorConfig `bson:"indicator_config,omitempty" json:"indicator_config,omitempty"`
 }
 
 // Schedule defines when the job should run
@@ -46,11 +43,10 @@ type RunState struct {
 
 // JobCreateRequest is the DTO for creating a job
 type JobCreateRequest struct {
-	ConnectorExchangeID string           `json:"connector_exchange_id" validate:"required"`
-	Symbol              string           `json:"symbol" validate:"required"`
-	Timeframe           string           `json:"timeframe" validate:"required,oneof=1m 5m 15m 30m 1h 4h 1d 1w"`
-	Status              string           `json:"status" validate:"omitempty,oneof=active paused"`
-	IndicatorConfig     *IndicatorConfig `json:"indicator_config,omitempty"`
+	ConnectorExchangeID string `json:"connector_exchange_id" validate:"required"`
+	Symbol              string `json:"symbol" validate:"required"`
+	Timeframe           string `json:"timeframe" validate:"required,oneof=1m 5m 15m 30m 1h 4h 1d 1w"`
+	Status              string `json:"status" validate:"omitempty,oneof=active paused"`
 }
 
 // JobUpdateRequest is the DTO for updating a job

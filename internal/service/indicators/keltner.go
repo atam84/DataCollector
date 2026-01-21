@@ -20,7 +20,7 @@ func CalculateKeltner(candles []models.Candle, period, atrPeriod int, multiplier
 		maxPeriod = atrPeriod
 	}
 
-	if n < maxPeriod+1 {
+	if period <= 0 || atrPeriod <= 0 || n < maxPeriod+1 {
 		return &KeltnerResult{
 			Upper:  nanSlice(n),
 			Middle: nanSlice(n),

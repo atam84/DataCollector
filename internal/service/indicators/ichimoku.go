@@ -20,7 +20,7 @@ func CalculateIchimoku(candles []models.Candle, tenkanPeriod, kijunPeriod, senko
 		maxPeriod = kijunPeriod
 	}
 
-	if n < maxPeriod+displacementFwd {
+	if tenkanPeriod <= 0 || kijunPeriod <= 0 || senkouBPeriod <= 0 || n < maxPeriod+displacementFwd {
 		return &IchimokuResult{
 			Tenkan:  nanSlice(n),
 			Kijun:   nanSlice(n),

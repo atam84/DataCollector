@@ -9,7 +9,7 @@ import (
 // Returns NaN for positions where there's insufficient data
 func CalculateSMA(candles []models.Candle, period int, source string) []float64 {
 	n := len(candles)
-	if n < period {
+	if period <= 0 || n < period {
 		return nanSlice(n)
 	}
 

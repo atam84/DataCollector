@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import axios from 'axios'
 import {
-  Cog6ToothIcon,
   ArrowPathIcon,
   PauseIcon,
   PlayIcon,
@@ -11,7 +10,6 @@ import {
   MagnifyingGlassIcon,
   FunnelIcon
 } from '@heroicons/react/24/outline'
-import IndicatorConfig from './IndicatorConfig'
 import JobDetails from './JobDetails'
 import JobWizard from './JobWizard'
 
@@ -19,18 +17,15 @@ const API_BASE = '/api/v1'
 
 function JobList({ jobs, connectors, onRefresh, loading }) {
   const [showCreateWizard, setShowCreateWizard] = useState(false)
-  const [showConfigModal, setShowConfigModal] = useState(false)
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [selectedJob, setSelectedJob] = useState(null)
-  const [indicatorConfig, setIndicatorConfig] = useState(null)
-  const [connectorConfig, setConnectorConfig] = useState(null)
-  const [loadingConfig, setLoadingConfig] = useState(false)
   const [recalculatingJobs, setRecalculatingJobs] = useState(new Set())
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedConnectors, setSelectedConnectors] = useState([])
   const [showConnectorFilter, setShowConnectorFilter] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
   const [executingJobs, setExecutingJobs] = useState(new Set())
+  const [selectedJobs, setSelectedJobs] = useState(new Set())
+  const [deletingSelected, setDeletingSelected] = useState(false)
 
   const handleWizardSave = async (jobs) => {
     try {
@@ -71,6 +66,34 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
     }
   }
 
+  const deleteSelectedJobs = async () => {
+    if (selectedJobs.size === 0) return
+    if (!confirm(`Are you sure you want to delete ${selectedJobs.size} selected job(s)?`)) return
+
+    setDeletingSelected(true)
+    let successCount = 0
+    let failCount = 0
+
+    for (const jobId of selectedJobs) {
+      try {
+        await axios.delete(`${API_BASE}/jobs/${jobId}`)
+        successCount++
+      } catch (err) {
+        failCount++
+        console.error(`Failed to delete job ${jobId}:`, err)
+      }
+    }
+
+    setDeletingSelected(false)
+    setSelectedJobs(new Set())
+
+    if (failCount > 0) {
+      alert(`Deleted ${successCount} jobs. Failed to delete ${failCount} jobs.`)
+    }
+
+    onRefresh()
+  }
+
   const executeJob = async (id) => {
     setExecutingJobs(prev => new Set(prev).add(id))
     try {
@@ -102,40 +125,6 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
 
   const getConnector = (exchangeId) => {
     return connectors.find(c => c.exchange_id === exchangeId)
-  }
-
-  const openConfigModal = async (job) => {
-    setSelectedJob(job)
-    setShowConfigModal(true)
-    setLoadingConfig(true)
-
-    try {
-      // Fetch job config
-      const jobResponse = await axios.get(`${API_BASE}/jobs/${job.id}/indicators/config`)
-      setIndicatorConfig(jobResponse.data.config || {})
-
-      // Fetch connector config for inheritance display
-      const connector = getConnector(job.connector_exchange_id)
-      if (connector) {
-        const connectorResponse = await axios.get(`${API_BASE}/connectors/${connector.id}/indicators/config`)
-        setConnectorConfig(connectorResponse.data.config || {})
-      }
-    } catch (err) {
-      alert('Failed to load indicator config: ' + (err.response?.data?.error || err.message))
-      setShowConfigModal(false)
-    } finally {
-      setLoadingConfig(false)
-    }
-  }
-
-  const saveIndicatorConfig = async (config) => {
-    try {
-      await axios.put(`${API_BASE}/jobs/${selectedJob.id}/indicators/config`, config)
-      alert('Indicator configuration saved successfully!')
-      setShowConfigModal(false)
-    } catch (err) {
-      alert('Failed to save indicator config: ' + (err.response?.data?.error || err.message))
-    }
   }
 
   const recalculateJob = async (jobId) => {
@@ -171,6 +160,26 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
     })
   }
 
+  const toggleJobSelection = (jobId) => {
+    setSelectedJobs(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(jobId)) {
+        newSet.delete(jobId)
+      } else {
+        newSet.add(jobId)
+      }
+      return newSet
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedJobs.size === filteredJobs.length) {
+      setSelectedJobs(new Set())
+    } else {
+      setSelectedJobs(new Set(filteredJobs.map(job => job.id)))
+    }
+  }
+
   // Filter jobs based on search and connector selection
   const filteredJobs = jobs.filter(job => {
     const matchesSearch = job.symbol.toLowerCase().includes(searchTerm.toLowerCase())
@@ -183,14 +192,27 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-900">Jobs</h2>
-        <button
-          onClick={() => setShowCreateWizard(true)}
-          className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50"
-          disabled={connectors.length === 0}
-          title="Create Multiple Jobs"
-        >
-          <PlusIcon className="w-5 h-5" />
-        </button>
+        <div className="flex space-x-2">
+          {selectedJobs.size > 0 && (
+            <button
+              onClick={deleteSelectedJobs}
+              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition disabled:opacity-50 flex items-center"
+              disabled={deletingSelected}
+              title={`Delete ${selectedJobs.size} selected job(s)`}
+            >
+              <TrashIcon className="w-4 h-4 mr-2" />
+              {deletingSelected ? 'Deleting...' : `Delete (${selectedJobs.size})`}
+            </button>
+          )}
+          <button
+            onClick={() => setShowCreateWizard(true)}
+            className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50"
+            disabled={connectors.length === 0}
+            title="Create Multiple Jobs"
+          >
+            <PlusIcon className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* Search and Filter Bar */}
@@ -304,7 +326,7 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
             {jobs.length === 0 ? 'No jobs configured yet' : 'No jobs match your filters'}
           </p>
           <button
-            onClick={() => setShowCreateModal(true)}
+            onClick={() => setShowCreateWizard(true)}
             className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
           >
             Create Your First Job
@@ -312,14 +334,27 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-3 bg-gray-50 border-b border-gray-200">
+          <div className="px-6 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
             <span className="text-sm text-gray-600">
               Showing {filteredJobs.length} of {jobs.length} jobs
+              {selectedJobs.size > 0 && ` (${selectedJobs.size} selected)`}
             </span>
+            <div className="text-sm text-blue-600">
+              All indicators are calculated automatically
+            </div>
           </div>
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-4 py-3 text-left">
+                  <input
+                    type="checkbox"
+                    checked={selectedJobs.size === filteredJobs.length && filteredJobs.length > 0}
+                    onChange={toggleSelectAll}
+                    className="rounded text-blue-600 focus:ring-blue-500"
+                    title="Select all"
+                  />
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Symbol
                 </th>
@@ -342,7 +377,15 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredJobs.map(job => (
-                <tr key={job.id} className="hover:bg-gray-50">
+                <tr key={job.id} className={`hover:bg-gray-50 ${selectedJobs.has(job.id) ? 'bg-blue-50' : ''}`}>
+                  <td className="px-4 py-4">
+                    <input
+                      type="checkbox"
+                      checked={selectedJobs.has(job.id)}
+                      onChange={() => toggleJobSelection(job.id)}
+                      className="rounded text-blue-600 focus:ring-blue-500"
+                    />
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <button
                       onClick={() => openJobDetails(job)}
@@ -383,58 +426,47 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <div className="flex flex-col space-y-1">
-                      <div className="flex space-x-2">
+                    <div className="flex space-x-1">
+                      <button
+                        onClick={() => executeJob(job.id)}
+                        className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                        disabled={executingJobs.has(job.id)}
+                        title={executingJobs.has(job.id) ? 'Running...' : 'Run now'}
+                      >
+                        <BoltIcon className={`w-4 h-4 ${executingJobs.has(job.id) ? 'animate-spin' : ''}`} />
+                      </button>
+                      <button
+                        onClick={() => recalculateJob(job.id)}
+                        className="p-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition disabled:opacity-50 flex items-center justify-center"
+                        disabled={recalculatingJobs.has(job.id)}
+                        title="Recalculate indicators"
+                      >
+                        <ArrowPathIcon className={`w-4 h-4 ${recalculatingJobs.has(job.id) ? 'animate-spin' : ''}`} />
+                      </button>
+                      {job.status === 'active' ? (
                         <button
-                          onClick={() => executeJob(job.id)}
-                          className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                          disabled={executingJobs.has(job.id)}
-                          title={executingJobs.has(job.id) ? 'Running...' : 'Run now'}
+                          onClick={() => pauseJob(job.id)}
+                          className="p-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition flex items-center justify-center"
+                          title="Pause job"
                         >
-                          <BoltIcon className={`w-4 h-4 ${executingJobs.has(job.id) ? 'animate-spin' : ''}`} />
+                          <PauseIcon className="w-4 h-4" />
                         </button>
+                      ) : (
                         <button
-                          onClick={() => openConfigModal(job)}
-                          className="p-1 bg-purple-500 text-white rounded hover:bg-purple-600 transition flex items-center justify-center"
-                          title="Configure indicators"
+                          onClick={() => resumeJob(job.id)}
+                          className="p-1 bg-green-500 text-white rounded hover:bg-green-600 transition flex items-center justify-center"
+                          title="Resume job"
                         >
-                          <Cog6ToothIcon className="w-4 h-4" />
+                          <PlayIcon className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => recalculateJob(job.id)}
-                          className="p-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition disabled:opacity-50 flex items-center justify-center"
-                          disabled={recalculatingJobs.has(job.id)}
-                          title="Recalculate indicators"
-                        >
-                          <ArrowPathIcon className={`w-4 h-4 ${recalculatingJobs.has(job.id) ? 'animate-spin' : ''}`} />
-                        </button>
-                      </div>
-                      <div className="flex space-x-2">
-                        {job.status === 'active' ? (
-                          <button
-                            onClick={() => pauseJob(job.id)}
-                            className="p-1 text-yellow-600 hover:text-yellow-900 flex items-center justify-center"
-                            title="Pause job"
-                          >
-                            <PauseIcon className="w-4 h-4" />
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => resumeJob(job.id)}
-                            className="p-1 text-green-600 hover:text-green-900 flex items-center justify-center"
-                            title="Resume job"
-                          >
-                            <PlayIcon className="w-4 h-4" />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => deleteJob(job.id)}
-                          className="p-1 text-red-600 hover:text-red-900 flex items-center justify-center"
-                          title="Delete job"
-                        >
-                          <TrashIcon className="w-4 h-4" />
-                        </button>
-                      </div>
+                      )}
+                      <button
+                        onClick={() => deleteJob(job.id)}
+                        className="p-1 bg-red-500 text-white rounded hover:bg-red-600 transition flex items-center justify-center"
+                        title="Delete job"
+                      >
+                        <TrashIcon className="w-4 h-4" />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -451,87 +483,6 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
           onClose={() => setShowCreateWizard(false)}
           onSave={handleWizardSave}
         />
-      )}
-
-      {/* Old Create Modal (REMOVED) */}
-      {false && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-xl font-bold mb-4">Create New Job</h3>
-            <form onSubmit={handleCreate}>
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Connector
-                </label>
-                <select
-                  value={formData.connector_exchange_id}
-                  onChange={(e) => setFormData({ ...formData, connector_exchange_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                >
-                  <option value="">Select a connector</option>
-                  {connectors.map(connector => (
-                    <option key={connector.id} value={connector.exchange_id}>
-                      {connector.display_name} ({connector.exchange_id})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Symbol
-                </label>
-                <input
-                  type="text"
-                  value={formData.symbol}
-                  onChange={(e) => setFormData({ ...formData, symbol: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="e.g., BTC/USDT"
-                  required
-                />
-              </div>
-
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Timeframe
-                </label>
-                <select
-                  value={formData.timeframe}
-                  onChange={(e) => setFormData({ ...formData, timeframe: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                >
-                  <option value="1m">1 minute</option>
-                  <option value="5m">5 minutes</option>
-                  <option value="15m">15 minutes</option>
-                  <option value="30m">30 minutes</option>
-                  <option value="1h">1 hour</option>
-                  <option value="4h">4 hours</option>
-                  <option value="1d">1 day</option>
-                </select>
-              </div>
-
-              <div className="flex space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 transition"
-                  disabled={submitting}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50"
-                  disabled={submitting}
-                >
-                  {submitting ? 'Creating...' : 'Create'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
       )}
 
       {/* Job Details Modal */}
@@ -557,50 +508,6 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
 
             <div className="flex-1 overflow-y-auto">
               <JobDetails job={selectedJob} connector={getConnector(selectedJob.connector_exchange_id)} />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Indicator Config Modal */}
-      {showConfigModal && selectedJob && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="p-6 border-b">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xl font-bold text-gray-900">Indicator Configuration</h3>
-                  <p className="text-sm text-gray-500 mt-1">
-                    {selectedJob.symbol} - {selectedJob.timeframe} ({getConnectorName(selectedJob.connector_exchange_id)})
-                  </p>
-                  <p className="text-xs text-blue-600 mt-1">
-                    💡 Job-level config overrides connector defaults. Disabled items inherit from connector.
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowConfigModal(false)}
-                  className="text-gray-400 hover:text-gray-600 text-2xl"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6">
-              {loadingConfig ? (
-                <div className="flex items-center justify-center py-12">
-                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                  <p className="ml-3 text-gray-600">Loading configuration...</p>
-                </div>
-              ) : (
-                <IndicatorConfig
-                  config={indicatorConfig}
-                  onChange={setIndicatorConfig}
-                  onSave={saveIndicatorConfig}
-                  isJobLevel={true}
-                  connectorConfig={connectorConfig}
-                />
-              )}
             </div>
           </div>
         </div>

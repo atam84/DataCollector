@@ -6,7 +6,7 @@ import "github.com/yourusername/datacollector/internal/models"
 // VWMA = Sum(Price * Volume) / Sum(Volume) over period
 func CalculateVWMA(candles []models.Candle, period int, source string) []float64 {
 	n := len(candles)
-	if n < period {
+	if period <= 0 || n < period {
 		return nanSlice(n)
 	}
 

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # MongoDB Database
   mongodb:
@@ -58,7 +56,6 @@ services:
       MONGODB_DATABASE: datacollector
 
       # Exchange configuration
-      EXCHANGE_SANDBOX_MODE: "true"
       EXCHANGE_ENABLE_RATE_LIMIT: "true"
       EXCHANGE_REQUEST_TIMEOUT: "30000"
     depends_on:

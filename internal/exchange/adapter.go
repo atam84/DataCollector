@@ -107,9 +107,6 @@ type Adapter interface {
 	// GetExchangeID returns the exchange identifier
 	GetExchangeID() string
 
-	// GetSandboxMode returns whether sandbox mode is enabled
-	GetSandboxMode() bool
-
 	// Close cleans up exchange resources
 	Close() error
 }
@@ -118,7 +115,6 @@ type Adapter interface {
 type CCXTAdapter struct {
 	exchange   ccxt.IExchange
 	exchangeID string
-	sandboxMode bool
 }
 
 // mapExchangeID maps our exchange IDs to CCXT exchange IDs
@@ -144,7 +140,7 @@ func mapExchangeID(exchangeID string) string {
 }
 
 // NewCCXTAdapter creates a new CCXT adapter
-func NewCCXTAdapter(exchangeID string, sandboxMode bool, enableRateLimit bool) (*CCXTAdapter, error) {
+func NewCCXTAdapter(exchangeID string, enableRateLimit bool) (*CCXTAdapter, error) {
 	// Map exchange ID to CCXT's expected format
 	ccxtExchangeID := mapExchangeID(exchangeID)
 
@@ -167,18 +163,12 @@ func NewCCXTAdapter(exchangeID string, sandboxMode bool, enableRateLimit bool) (
 		return nil, fmt.Errorf("failed to create exchange instance for %s", ccxtExchangeID)
 	}
 
-	// Set sandbox mode
-	if sandboxMode {
-		exchange.SetSandboxMode(true)
-	}
-
 	adapter := &CCXTAdapter{
 		exchange:   exchange,
 		exchangeID: exchangeID,
-		sandboxMode: sandboxMode,
 	}
 
-	log.Printf("[EXCHANGE] Created CCXT adapter for %s (sandbox: %v)", exchangeID, sandboxMode)
+	log.Printf("[EXCHANGE] Created CCXT adapter for %s", exchangeID)
 
 	return adapter, nil
 }
@@ -233,11 +223,6 @@ func (a *CCXTAdapter) FetchOHLCV(symbol, timeframe string, since *time.Time, lim
 // GetExchangeID returns the exchange identifier
 func (a *CCXTAdapter) GetExchangeID() string {
 	return a.exchangeID
-}
-
-// GetSandboxMode returns whether sandbox mode is enabled
-func (a *CCXTAdapter) GetSandboxMode() bool {
-	return a.sandboxMode
 }
 
 // Close cleans up exchange resources

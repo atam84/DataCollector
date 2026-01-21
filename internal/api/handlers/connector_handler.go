@@ -59,7 +59,6 @@ func (h *ConnectorHandler) CreateConnector(c *fiber.Ctx) error {
 		ExchangeID:  req.ExchangeID,
 		DisplayName: req.DisplayName,
 		Status:      "active",
-		SandboxMode: req.SandboxMode,
 		RateLimit: models.RateLimit{
 			Limit:       req.RateLimit.Limit,
 			PeriodMs:    req.RateLimit.PeriodMs,
@@ -88,11 +87,6 @@ func (h *ConnectorHandler) GetConnectors(c *fiber.Ctx) error {
 	filter := bson.M{}
 	if status := c.Query("status"); status != "" {
 		filter["status"] = status
-	}
-
-	// Optional filter by sandbox mode
-	if sandboxMode := c.Query("sandbox_mode"); sandboxMode != "" {
-		filter["sandbox_mode"] = sandboxMode == "true"
 	}
 
 	connectors, err := h.repo.FindAll(ctx, filter)
@@ -180,10 +174,6 @@ func (h *ConnectorHandler) UpdateConnector(c *fiber.Ctx) error {
 		update["status"] = *req.Status
 	}
 
-	if req.SandboxMode != nil {
-		update["sandbox_mode"] = *req.SandboxMode
-	}
-
 	if req.RateLimit != nil {
 		if req.RateLimit.Limit != nil {
 			update["rate_limit.limit"] = *req.RateLimit.Limit
@@ -232,45 +222,6 @@ func (h *ConnectorHandler) DeleteConnector(c *fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusNoContent).Send(nil)
-}
-
-// ToggleSandboxMode toggles sandbox mode for a connector
-// PATCH /api/v1/connectors/:id/sandbox
-func (h *ConnectorHandler) ToggleSandboxMode(c *fiber.Ctx) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	id := c.Params("id")
-
-	var req struct {
-		SandboxMode bool `json:"sandbox_mode"`
-	}
-
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
-	}
-
-	if err := h.repo.UpdateSandboxMode(ctx, id, req.SandboxMode); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-
-	// Fetch updated connector
-	connector, err := h.repo.FindByID(ctx, id)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-
-	return c.JSON(fiber.Map{
-		"message":      "Sandbox mode updated successfully",
-		"sandbox_mode": connector.SandboxMode,
-		"connector":    connector,
-	})
 }
 
 // SuspendConnector suspends a connector and all its jobs
@@ -369,105 +320,3 @@ func (h *ConnectorHandler) ResumeConnector(c *fiber.Ctx) error {
 	})
 }
 
-// GetIndicatorConfig retrieves the indicator configuration for a connector
-// GET /api/v1/connectors/:id/indicators/config
-func (h *ConnectorHandler) GetIndicatorConfig(c *fiber.Ctx) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	id := c.Params("id")
-
-	connector, err := h.repo.FindByID(ctx, id)
-	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "Connector not found",
-		})
-	}
-
-	return c.JSON(fiber.Map{
-		"connector_id": id,
-		"config":       connector.IndicatorConfig,
-	})
-}
-
-// UpdateIndicatorConfig updates the indicator configuration for a connector
-// PUT /api/v1/connectors/:id/indicators/config
-func (h *ConnectorHandler) UpdateIndicatorConfig(c *fiber.Ctx) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	id := c.Params("id")
-
-	var config models.IndicatorConfig
-	if err := c.BodyParser(&config); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
-	}
-
-	// Update the connector's indicator config
-	update := bson.M{
-		"indicator_config": config,
-		"updated_at":       time.Now(),
-	}
-
-	if err := h.repo.Update(ctx, id, update); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to update indicator configuration",
-		})
-	}
-
-	return c.JSON(fiber.Map{
-		"success":      true,
-		"message":      "Indicator configuration updated successfully",
-		"connector_id": id,
-		"config":       config,
-	})
-}
-
-// PatchIndicatorConfig partially updates the indicator configuration for a connector
-// PATCH /api/v1/connectors/:id/indicators/config
-func (h *ConnectorHandler) PatchIndicatorConfig(c *fiber.Ctx) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	id := c.Params("id")
-
-	// Get current connector
-	connector, err := h.repo.FindByID(ctx, id)
-	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "Connector not found",
-		})
-	}
-
-	// Parse partial update
-	var partialConfig map[string]interface{}
-	if err := c.BodyParser(&partialConfig); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
-	}
-
-	// Build update with dot notation for nested fields
-	update := bson.M{"updated_at": time.Now()}
-	for key, value := range partialConfig {
-		update["indicator_config."+key] = value
-	}
-
-	if err := h.repo.Update(ctx, id, update); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to update indicator configuration",
-		})
-	}
-
-	// Fetch updated connector
-	connector, _ = h.repo.FindByID(ctx, id)
-
-	return c.JSON(fiber.Map{
-		"success":      true,
-		"message":      "Indicator configuration updated successfully",
-		"connector_id": id,
-		"config":       connector.IndicatorConfig,
-	})
-}

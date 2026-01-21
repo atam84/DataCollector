@@ -1,7 +1,7 @@
 # Backend Dockerfile - Multi-stage build for Go API
 
 # Stage 1: Build
-FROM golang:1.23-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Set GOTOOLCHAIN to auto to allow downloading newer Go versions if needed
 ENV GOTOOLCHAIN=auto
@@ -16,16 +16,18 @@ WORKDIR /app
 COPY go.mod go.sum ./
 
 # Download dependencies and install the required Go toolchain
-RUN go mod download && go install golang.org/dl/go1.24.12@latest && go1.24.12 download
+#RUN go mod download && go install golang.org/dl/go1.24.12@latest && go1.24.12 download
 
 # Copy source code
 COPY . .
 
 # Update go.mod and go.sum for the new Go version
-RUN go1.24.12 mod tidy
+#RUN go1.24.12 mod tidy
+RUN go mod tidy
 
 # Build the application using the correct Go version
-RUN CGO_ENABLED=0 GOOS=linux go1.24.12 build -a -installsuffix cgo -o /app/bin/api ./cmd/api
+#RUN CGO_ENABLED=0 GOOS=linux go1.24.12 build -a -installsuffix cgo -o /app/bin/api ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /app/bin/api ./cmd/api
 
 # Stage 2: Runtime
 FROM alpine:latest

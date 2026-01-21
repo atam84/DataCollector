@@ -3,14 +3,14 @@ import { useMemo } from 'react'
 function Dashboard({ connectors, jobs, onRefresh }) {
   const stats = useMemo(() => {
     const activeConnectors = connectors.filter(c => c.status === 'active').length
-    const sandboxConnectors = connectors.filter(c => c.sandbox_mode).length
+    const disabledConnectors = connectors.filter(c => c.status === 'disabled').length
     const activeJobs = jobs.filter(j => j.status === 'active').length
     const pausedJobs = jobs.filter(j => j.status === 'paused').length
 
     return {
       totalConnectors: connectors.length,
       activeConnectors,
-      sandboxConnectors,
+      disabledConnectors,
       totalJobs: jobs.length,
       activeJobs,
       pausedJobs
@@ -47,7 +47,7 @@ function Dashboard({ connectors, jobs, onRefresh }) {
           <div className="mt-4 flex items-center text-sm">
             <span className="text-green-600 font-medium">{stats.activeConnectors} active</span>
             <span className="mx-2 text-gray-400">•</span>
-            <span className="text-yellow-600 font-medium">{stats.sandboxConnectors} sandbox</span>
+            <span className="text-gray-600 font-medium">{stats.disabledConnectors} disabled</span>
           </div>
         </div>
 
@@ -121,20 +121,13 @@ function Dashboard({ connectors, jobs, onRefresh }) {
                           <p className="font-medium text-gray-900">{connector.display_name}</p>
                           <p className="text-sm text-gray-500">{connector.exchange_id}</p>
                         </div>
-                        <div className="flex items-center space-x-2">
-                          {connector.sandbox_mode && (
-                            <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded">
-                              Sandbox
-                            </span>
-                          )}
-                          <span className={`px-2 py-1 text-xs font-medium rounded ${
-                            connector.status === 'active'
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-gray-100 text-gray-800'
-                          }`}>
-                            {connector.status}
-                          </span>
-                        </div>
+                        <span className={`px-2 py-1 text-xs font-medium rounded ${
+                          connector.status === 'active'
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {connector.status}
+                        </span>
                       </div>
 
                       <div className="grid grid-cols-3 gap-4 text-sm">
