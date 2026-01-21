@@ -74,6 +74,7 @@ func (h *JobHandler) CreateJob(c *fiber.Ctx) error {
 		Symbol:              req.Symbol,
 		Timeframe:           req.Timeframe,
 		Status:              status,
+		CollectHistorical:   req.CollectHistorical,
 		Schedule: models.Schedule{
 			Mode: "timeframe",
 		},
@@ -155,6 +156,7 @@ func (h *JobHandler) CreateJobsBatch(c *fiber.Ctx) error {
 			Symbol:              jobReq.Symbol,
 			Timeframe:           jobReq.Timeframe,
 			Status:              status,
+			CollectHistorical:   jobReq.CollectHistorical,
 			Schedule: models.Schedule{
 				Mode: "timeframe",
 			},
@@ -288,6 +290,10 @@ func (h *JobHandler) UpdateJob(c *fiber.Ctx) error {
 
 	if req.Timeframe != nil {
 		update["timeframe"] = *req.Timeframe
+	}
+
+	if req.CollectHistorical != nil {
+		update["collect_historical"] = *req.CollectHistorical
 	}
 
 	if len(update) == 0 {

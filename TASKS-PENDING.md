@@ -1,16 +1,53 @@
 # Pending Tasks
 
+## Recent Completed Work (2026-01-21)
+
+### ✅ v1.0.5b - Dynamic Exchange Support & Historical Data Collection
+
+**Dynamic CCXT Exchange Support (Completed)**
+- ✅ Dynamic exchange discovery from `ccxt.Exchanges` (111 exchanges supported)
+- ✅ Auto-detection of OHLCV support via `exchange.GetHas()`
+- ✅ Dynamic metadata fetching: `GetTimeframes()`, `GetFeatures()`, `GetHas()`
+- ✅ Thread-safe caching for exchange metadata and supported list
+- ✅ Cache refresh endpoint: `POST /api/v1/exchanges/refresh`
+- ✅ Debug endpoint: `GET /api/v1/exchanges/:id/debug`
+- ✅ Fixed CCXTService to use generic adapter (was hardcoded to only bybit/binance)
+
+**Historical Data Collection (Completed)**
+- ✅ Full historical data fetching with pagination
+- ✅ Starts from 5 years ago (or exchange's earliest data)
+- ✅ Batched fetching using exchange's OHLCV limit
+- ✅ Forward pagination until reaching present time
+- ✅ Rate limit respect with delays between batches
+- ✅ Graceful error handling (returns partial data on errors)
+
+**CandlestickChart Component (Completed)**
+- ✅ Professional candlestick visualization with lightweight-charts v5
+- ✅ Volume histogram with color coding (green/red)
+- ✅ Indicator overlay support (SMA, EMA, Bollinger Bands, etc.)
+- ✅ Separate panes for momentum indicators (RSI, MACD, Stochastic)
+- ✅ Collapsible indicator groups with enable/disable checkboxes
+- ✅ Interactive legend showing active indicators
+- ✅ Fixed v5 API compatibility (`addSeries()` instead of `addCandlestickSeries()`)
+
+**UI Enhancements (Completed)**
+- ✅ Refresh buttons on all pages (Dashboard, Connectors, Jobs, Queue)
+- ✅ Consistent icon-style buttons with spin animation during loading
+- ✅ Exchange selection in wizards now uses dynamic list
+
+---
+
 ## Recent Completed Work (2026-01-20)
 
 ### ✅ Completed Features
 
 **Exchange Validation & Support (Completed)**
 - ✅ Exchange validation system with `TestExchangeAvailability()`
-- ✅ Support for 13 exchanges: binance, bitfinex, bitget, bitstamp, bybit, coinbase, gateio, gemini, huobi, kraken, kucoin, mexc, okx
+- ✅ Support for 111 exchanges (dynamic from CCXT)
 - ✅ `/api/v1/exchanges` endpoint returning supported exchanges
 - ✅ `/api/v1/exchanges/test` endpoint for testing availability
+- ✅ `/api/v1/exchanges/metadata` endpoint for all exchange metadata
 - ✅ Exchange ID mapping (gate → gateio, etc.)
-- ✅ Fixed KuCoin and OKX "not yet supported" errors
 
 **Wizard-Based Workflows (Completed)**
 - ✅ ConnectorWizard with 2-step flow (exchange + indicators)
@@ -31,7 +68,7 @@
 - ✅ Search bar for filtering jobs by symbol
 - ✅ Multi-connector filter with checkboxes
 - ✅ JobDetails component with 3 tabs (Overview, Raw Data, Charts)
-- ✅ Recharts integration for data visualization
+- ✅ lightweight-charts integration for data visualization
 - ✅ Clickable symbols opening detailed view
 - ✅ Export buttons with file download handling
 
@@ -121,9 +158,15 @@ The indicator configuration system has been implemented with GET/PUT/PATCH endpo
 
 ## Known Issues
 
-### Fixed Issues (Latest Session)
+### Fixed Issues (v1.0.5b)
+- ✅ OKX exchange "not yet supported" error - Fixed by using dynamic adapter
+- ✅ BingX exchange "not yet supported" error - Fixed by using dynamic adapter
+- ✅ CCXTService hardcoded to only bybit/binance - Now uses generic adapter
+- ✅ Historical data not being collected - Implemented pagination
+- ✅ lightweight-charts v5 API incompatibility - Fixed `addSeries()` usage
+
+### Fixed Issues (Previous Sessions)
 - ✅ KuCoin exchange "not yet supported" error
-- ✅ OKX exchange "not yet supported" error
 - ✅ Exchange validation rejecting all exchanges except Binance
 - ✅ MongoDB disk space issues causing crashes
 - ✅ Type conversion errors in CCXT API calls (int → int64)
@@ -137,19 +180,35 @@ The indicator configuration system has been implemented with GET/PUT/PATCH endpo
 ## Testing Checklist
 
 ### Exchange Integration
+- [x] Dynamic exchange discovery (111 exchanges)
 - [x] Binance connector creation and data fetching
 - [x] Multiple exchange support verification
 - [x] Exchange availability testing endpoint
-- [ ] All 13 exchanges individually tested
+- [x] OKX and BingX support verified
 - [ ] Sandbox mode testing for each exchange
 - [ ] Rate limit enforcement testing
+
+### Historical Data Collection
+- [x] First execution fetches all historical data
+- [x] Pagination working correctly
+- [x] Subsequent executions fetch only new data
+- [ ] Very large dataset collection (100k+ candles)
+- [ ] Error recovery during pagination
 
 ### Wizard Workflows
 - [x] Connector wizard 2-step flow
 - [x] Job wizard 4-step flow
 - [x] Batch job creation (multiple pairs × timeframes)
+- [x] Dynamic exchange list in wizards
 - [ ] Wizard validation edge cases
 - [ ] Indicator configuration in wizards
+
+### Data Visualization
+- [x] CandlestickChart rendering
+- [x] Volume histogram display
+- [x] Indicator overlays (SMA, EMA, BB)
+- [x] Separate indicator panes (RSI, MACD)
+- [ ] Large dataset performance (10k+ candles)
 
 ### Data Export
 - [x] CSV export format
@@ -176,13 +235,13 @@ The indicator configuration system has been implemented with GET/PUT/PATCH endpo
 - [ ] Add request/response DTOs for all endpoints
 
 ### Performance
-- [ ] Implement caching for frequently accessed data
+- [x] Implemented caching for exchange metadata
 - [ ] Optimize indicator calculations for large datasets
 - [ ] Add database indexes for common queries
 - [ ] Implement connection pooling optimization
 
 ### Observability
-- [ ] Add structured logging throughout application
+- [x] Added comprehensive logging for CCXT operations
 - [ ] Implement metrics collection (Prometheus)
 - [ ] Add distributed tracing
 - [ ] Create health check dashboard
@@ -206,12 +265,14 @@ The indicator configuration system has been implemented with GET/PUT/PATCH endpo
 
 ---
 
-**Last Updated:** 2026-01-20 23:20 CET
+**Last Updated:** 2026-01-21
 
-**Current Branch:** main (commit: b62a138)
+**Current Version:** v1.0.5b
+
+**Current Branch:** main
 
 **Next Session Priorities:**
 1. Fix indicator configuration affectation issue
-2. Test all 13 exchanges individually
+2. Test historical data collection with various exchanges
 3. Add connector statistics/monitoring dashboard
-4. Implement alerting for failed jobs
+4. Performance testing with large datasets

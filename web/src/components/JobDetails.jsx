@@ -6,25 +6,16 @@ import {
   TableCellsIcon,
   InformationCircleIcon
 } from '@heroicons/react/24/outline'
-import {
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer
-} from 'recharts'
+import CandlestickChart from './CandlestickChart'
 
 const API_BASE = '/api/v1'
 
 function JobDetails({ job, connector }) {
   const [activeTab, setActiveTab] = useState('overview')
   const [ohlcvData, setOhlcvData] = useState([])
+  const [chartData, setChartData] = useState([])
   const [loading, setLoading] = useState(false)
+  const [chartLoading, setChartLoading] = useState(false)
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 50,
@@ -34,8 +25,10 @@ function JobDetails({ job, connector }) {
   const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
-    if (activeTab === 'data' || activeTab === 'charts') {
+    if (activeTab === 'data') {
       fetchOHLCVData()
+    } else if (activeTab === 'charts') {
+      fetchChartData()
     }
   }, [activeTab, pagination.page, job.id])
 
@@ -59,6 +52,25 @@ function JobDetails({ job, connector }) {
       setOhlcvData([])
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchChartData = async () => {
+    setChartLoading(true)
+    try {
+      // Fetch more data for charts (up to 500 candles)
+      const response = await axios.get(`${API_BASE}/jobs/${job.id}/ohlcv`, {
+        params: {
+          page: 1,
+          limit: 500
+        }
+      })
+      setChartData(response.data.data || [])
+    } catch (err) {
+      console.error('Failed to fetch chart data:', err)
+      setChartData([])
+    } finally {
+      setChartLoading(false)
     }
   }
 
@@ -115,16 +127,6 @@ function JobDetails({ job, connector }) {
     if (num === null || num === undefined) return 'N/A'
     return typeof num === 'number' ? num.toFixed(8) : num
   }
-
-  // Prepare data for charts
-  const chartData = ohlcvData.map(item => ({
-    time: new Date(item.timestamp).toLocaleDateString(),
-    open: item.open,
-    high: item.high,
-    low: item.low,
-    close: item.close,
-    volume: item.volume
-  }))
 
   return (
     <div className="p-6">
@@ -393,51 +395,28 @@ function JobDetails({ job, connector }) {
 
       {/* Charts Tab */}
       {activeTab === 'charts' && (
-        <div className="space-y-8">
-          {loading ? (
+        <div>
+          {chartLoading ? (
             <div className="text-center py-12">
               <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
               <p className="mt-2 text-gray-600">Loading chart data...</p>
             </div>
           ) : chartData.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
-              No data available for charts
+              No data available for charts. Execute the job to collect data.
             </div>
           ) : (
-            <>
-              {/* Price Chart */}
-              <div className="bg-white p-6 rounded-lg border border-gray-200">
-                <h3 className="text-lg font-bold text-gray-900 mb-4">Price Chart (OHLC)</h3>
-                <ResponsiveContainer width="100%" height={400}>
-                  <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="time" />
-                    <YAxis domain={['auto', 'auto']} />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="open" stroke="#8884d8" name="Open" dot={false} />
-                    <Line type="monotone" dataKey="high" stroke="#82ca9d" name="High" dot={false} />
-                    <Line type="monotone" dataKey="low" stroke="#ff7c7c" name="Low" dot={false} />
-                    <Line type="monotone" dataKey="close" stroke="#ffc658" name="Close" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
+            <div className="bg-white p-6 rounded-lg border border-gray-200">
+              <CandlestickChart
+                data={chartData}
+                symbol={job.symbol}
+                timeframe={job.timeframe}
+                height={550}
+              />
+              <div className="mt-4 text-sm text-gray-500">
+                Showing {chartData.length} candles. Technical indicators are displayed when available.
               </div>
-
-              {/* Volume Chart */}
-              <div className="bg-white p-6 rounded-lg border border-gray-200">
-                <h3 className="text-lg font-bold text-gray-900 mb-4">Volume Chart</h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="time" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="volume" fill="#8884d8" name="Volume" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </>
+            </div>
           )}
         </div>
       )}

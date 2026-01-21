@@ -131,6 +131,7 @@ function App() {
                 fetchConnectors()
                 fetchJobs()
               }}
+              loading={loading}
             />
           )}
           {activeTab === 'connectors' && (

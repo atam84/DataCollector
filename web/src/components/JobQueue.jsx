@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
-import { BoltIcon } from '@heroicons/react/24/outline'
+import { BoltIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 
 const API_BASE = '/api/v1'
 
@@ -96,7 +96,17 @@ function JobQueue({ connectors }) {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-900">Upcoming Executions</h2>
-        <span className="text-sm text-gray-500">{queue.length} jobs scheduled</span>
+        <div className="flex items-center space-x-4">
+          <span className="text-sm text-gray-500">{queue.length} jobs scheduled</span>
+          <button
+            onClick={fetchQueue}
+            className="p-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition"
+            title="Refresh"
+            disabled={loading}
+          >
+            <ArrowPathIcon className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
 
       {loading ? (

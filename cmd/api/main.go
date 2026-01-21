@@ -108,6 +108,11 @@ func main() {
 	api.Get("/health", healthHandler.GetHealth)
 	api.Get("/exchanges", healthHandler.GetSupportedExchanges)
 	api.Get("/exchanges/test", healthHandler.TestExchangeAvailability)
+	api.Get("/exchanges/metadata", healthHandler.GetExchangesMetadata)
+	api.Post("/exchanges/refresh", healthHandler.RefreshExchangeCache)
+	api.Get("/exchanges/:id/metadata", healthHandler.GetExchangeMetadata)
+	api.Get("/exchanges/:id/debug", healthHandler.DebugExchange)
+	api.Get("/exchanges/:id/symbols", healthHandler.GetExchangeSymbols)
 
 	// Connector routes
 	api.Post("/connectors", connectorHandler.CreateConnector)

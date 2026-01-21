@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
+import { ArrowPathIcon } from '@heroicons/react/24/outline'
 
-function Dashboard({ connectors, jobs, onRefresh }) {
+function Dashboard({ connectors, jobs, onRefresh, loading }) {
   const stats = useMemo(() => {
     const activeConnectors = connectors.filter(c => c.status === 'active').length
     const disabledConnectors = connectors.filter(c => c.status === 'disabled').length
@@ -23,9 +24,11 @@ function Dashboard({ connectors, jobs, onRefresh }) {
         <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
         <button
           onClick={onRefresh}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+          className="p-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition"
+          title="Refresh"
+          disabled={loading}
         >
-          Refresh
+          <ArrowPathIcon className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
 

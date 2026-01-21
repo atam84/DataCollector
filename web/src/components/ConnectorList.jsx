@@ -114,13 +114,23 @@ function ConnectorList({ connectors, onRefresh, loading }) {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-900">Connectors</h2>
-        <button
-          onClick={() => setShowCreateWizard(true)}
-          className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
-          title="New Connector"
-        >
-          <PlusIcon className="w-5 h-5" />
-        </button>
+        <div className="flex space-x-2">
+          <button
+            onClick={onRefresh}
+            className="p-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition"
+            title="Refresh"
+            disabled={loading}
+          >
+            <ArrowPathIcon className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            onClick={() => setShowCreateWizard(true)}
+            className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+            title="New Connector"
+          >
+            <PlusIcon className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* Connectors Grid */}

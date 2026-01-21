@@ -8,13 +8,14 @@ import (
 
 // Job represents an ingestion task for a symbol + timeframe
 type Job struct {
-	ID                 primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	ID                  primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	ConnectorExchangeID string             `bson:"connector_exchange_id" json:"connector_exchange_id"`
-	Symbol             string             `bson:"symbol" json:"symbol"`
-	Timeframe          string             `bson:"timeframe" json:"timeframe"` // "1m", "5m", "1h", etc.
-	Status             string             `bson:"status" json:"status"`       // "active", "paused", "error"
-	CreatedAt          time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt          time.Time          `bson:"updated_at" json:"updated_at"`
+	Symbol              string             `bson:"symbol" json:"symbol"`
+	Timeframe           string             `bson:"timeframe" json:"timeframe"` // "1m", "5m", "1h", etc.
+	Status              string             `bson:"status" json:"status"`       // "active", "paused", "error"
+	CollectHistorical   bool               `bson:"collect_historical" json:"collect_historical"`
+	CreatedAt           time.Time          `bson:"created_at" json:"created_at"`
+	UpdatedAt           time.Time          `bson:"updated_at" json:"updated_at"`
 
 	Schedule Schedule `bson:"schedule" json:"schedule"`
 	Cursor   Cursor   `bson:"cursor" json:"cursor"`
@@ -45,12 +46,14 @@ type RunState struct {
 type JobCreateRequest struct {
 	ConnectorExchangeID string `json:"connector_exchange_id" validate:"required"`
 	Symbol              string `json:"symbol" validate:"required"`
-	Timeframe           string `json:"timeframe" validate:"required,oneof=1m 5m 15m 30m 1h 4h 1d 1w"`
+	Timeframe           string `json:"timeframe" validate:"required"`
 	Status              string `json:"status" validate:"omitempty,oneof=active paused"`
+	CollectHistorical   bool   `json:"collect_historical"`
 }
 
 // JobUpdateRequest is the DTO for updating a job
 type JobUpdateRequest struct {
-	Status    *string `json:"status,omitempty" validate:"omitempty,oneof=active paused error"`
-	Timeframe *string `json:"timeframe,omitempty" validate:"omitempty,oneof=1m 5m 15m 30m 1h 4h 1d 1w"`
+	Status            *string `json:"status,omitempty" validate:"omitempty,oneof=active paused error"`
+	Timeframe         *string `json:"timeframe,omitempty"`
+	CollectHistorical *bool   `json:"collect_historical,omitempty"`
 }

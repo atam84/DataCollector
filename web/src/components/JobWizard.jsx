@@ -1,9 +1,14 @@
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import axios from 'axios'
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
-  CheckIcon
+  CheckIcon,
+  MagnifyingGlassIcon,
+  ClockIcon
 } from '@heroicons/react/24/outline'
+
+const API_BASE = '/api/v1'
 
 const POPULAR_PAIRS = [
   'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT',
@@ -12,7 +17,8 @@ const POPULAR_PAIRS = [
   'BCH/USDT', 'APT/USDT', 'ARB/USDT', 'OP/USDT', 'INJ/USDT'
 ]
 
-const TIMEFRAMES = [
+// Default timeframes if exchange doesn't provide them
+const DEFAULT_TIMEFRAMES = [
   { id: '1m', label: '1 Minute', description: 'Very short-term' },
   { id: '5m', label: '5 Minutes', description: 'Short-term' },
   { id: '15m', label: '15 Minutes', description: 'Intraday' },
@@ -23,6 +29,25 @@ const TIMEFRAMES = [
   { id: '1w', label: '1 Week', description: 'Very long-term' }
 ]
 
+// Timeframe labels and descriptions
+const TIMEFRAME_INFO = {
+  '1m': { label: '1 Minute', description: 'Very short-term' },
+  '3m': { label: '3 Minutes', description: 'Very short-term' },
+  '5m': { label: '5 Minutes', description: 'Short-term' },
+  '15m': { label: '15 Minutes', description: 'Intraday' },
+  '30m': { label: '30 Minutes', description: 'Intraday' },
+  '1h': { label: '1 Hour', description: 'Short-term' },
+  '2h': { label: '2 Hours', description: 'Medium-term' },
+  '4h': { label: '4 Hours', description: 'Medium-term' },
+  '6h': { label: '6 Hours', description: 'Medium-term' },
+  '8h': { label: '8 Hours', description: 'Medium-term' },
+  '12h': { label: '12 Hours', description: 'Medium-term' },
+  '1d': { label: '1 Day', description: 'Long-term' },
+  '3d': { label: '3 Days', description: 'Long-term' },
+  '1w': { label: '1 Week', description: 'Very long-term' },
+  '1M': { label: '1 Month', description: 'Very long-term' }
+}
+
 function JobWizard({ connectors, onClose, onSave }) {
   const [currentStep, setCurrentStep] = useState(1)
   const [selectedConnector, setSelectedConnector] = useState('')
@@ -30,6 +55,79 @@ function JobWizard({ connectors, onClose, onSave }) {
   const [customPair, setCustomPair] = useState('')
   const [selectedTimeframes, setSelectedTimeframes] = useState([])
   const [saving, setSaving] = useState(false)
+  const [collectHistorical, setCollectHistorical] = useState(false)
+
+  // Exchange-specific data
+  const [exchangeMetadata, setExchangeMetadata] = useState(null)
+  const [exchangeSymbols, setExchangeSymbols] = useState([])
+  const [loadingSymbols, setLoadingSymbols] = useState(false)
+  const [symbolSearch, setSymbolSearch] = useState('')
+
+  // Fetch exchange metadata when connector changes
+  useEffect(() => {
+    if (!selectedConnector) {
+      setExchangeMetadata(null)
+      setExchangeSymbols([])
+      return
+    }
+
+    const fetchExchangeData = async () => {
+      try {
+        // Fetch metadata for timeframes
+        const metaResponse = await axios.get(`${API_BASE}/exchanges/${selectedConnector}/metadata`)
+        setExchangeMetadata(metaResponse.data)
+      } catch (err) {
+        console.error('Failed to fetch exchange metadata:', err)
+        setExchangeMetadata(null)
+      }
+    }
+
+    fetchExchangeData()
+  }, [selectedConnector])
+
+  // Fetch symbols when entering step 2
+  useEffect(() => {
+    if (currentStep === 2 && selectedConnector && exchangeSymbols.length === 0) {
+      const fetchSymbols = async () => {
+        setLoadingSymbols(true)
+        try {
+          const response = await axios.get(`${API_BASE}/exchanges/${selectedConnector}/symbols`)
+          setExchangeSymbols(response.data.symbols || [])
+        } catch (err) {
+          console.error('Failed to fetch exchange symbols:', err)
+          setExchangeSymbols([])
+        } finally {
+          setLoadingSymbols(false)
+        }
+      }
+      fetchSymbols()
+    }
+  }, [currentStep, selectedConnector, exchangeSymbols.length])
+
+  // Get available timeframes from exchange metadata or use defaults
+  const availableTimeframes = useMemo(() => {
+    if (exchangeMetadata?.timeframes && Object.keys(exchangeMetadata.timeframes).length > 0) {
+      return Object.keys(exchangeMetadata.timeframes).map(tf => ({
+        id: tf,
+        label: TIMEFRAME_INFO[tf]?.label || tf,
+        description: TIMEFRAME_INFO[tf]?.description || ''
+      }))
+    }
+    return DEFAULT_TIMEFRAMES
+  }, [exchangeMetadata])
+
+  // Filter symbols based on search
+  const filteredSymbols = useMemo(() => {
+    if (!symbolSearch) return exchangeSymbols.slice(0, 100) // Show first 100 by default
+    const term = symbolSearch.toUpperCase()
+    return exchangeSymbols.filter(s => s.toUpperCase().includes(term)).slice(0, 100)
+  }, [exchangeSymbols, symbolSearch])
+
+  // Check if symbol is available on exchange
+  const isSymbolAvailable = (symbol) => {
+    if (exchangeSymbols.length === 0) return true // If no symbols loaded, assume available
+    return exchangeSymbols.includes(symbol)
+  }
 
   const handleNext = () => {
     if (currentStep === 1 && !selectedConnector) {
@@ -70,6 +168,13 @@ function JobWizard({ connectors, onClose, onSave }) {
     }
   }
 
+  const handleConnectorSelect = (exchangeId) => {
+    setSelectedConnector(exchangeId)
+    // Reset exchange-specific data when connector changes
+    setExchangeSymbols([])
+    setSelectedTimeframes([])
+  }
+
   const handleCreateJobs = async () => {
     if (selectedTimeframes.length === 0) {
       alert('Please select at least one timeframe')
@@ -86,7 +191,8 @@ function JobWizard({ connectors, onClose, onSave }) {
             connector_exchange_id: selectedConnector,
             symbol: pair,
             timeframe: timeframe,
-            status: 'active'
+            status: 'active',
+            collect_historical: collectHistorical
           })
         }
       }
@@ -153,7 +259,7 @@ function JobWizard({ connectors, onClose, onSave }) {
                 {connectors.map(connector => (
                   <button
                     key={connector.id}
-                    onClick={() => setSelectedConnector(connector.exchange_id)}
+                    onClick={() => handleConnectorSelect(connector.exchange_id)}
                     className={`p-4 border-2 rounded-lg text-left transition ${
                       selectedConnector === connector.exchange_id
                         ? 'border-green-500 bg-green-50'
@@ -178,6 +284,25 @@ function JobWizard({ connectors, onClose, onSave }) {
                 ))}
               </div>
 
+              {/* Exchange Info */}
+              {exchangeMetadata && (
+                <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <h5 className="font-semibold text-blue-900 mb-2">{exchangeMetadata.name} Info</h5>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-blue-700 font-medium">OHLCV Limit:</span>
+                      <span className="ml-2 text-blue-900">{exchangeMetadata.ohlcv_limit || 500} candles/request</span>
+                    </div>
+                    <div>
+                      <span className="text-blue-700 font-medium">Timeframes:</span>
+                      <span className="ml-2 text-blue-900">
+                        {exchangeMetadata.timeframes ? Object.keys(exchangeMetadata.timeframes).length : 0} available
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {connectors.length === 0 && (
                 <div className="text-center py-12 text-gray-500">
                   No connectors available. Please create a connector first.
@@ -192,7 +317,58 @@ function JobWizard({ connectors, onClose, onSave }) {
               <h4 className="text-lg font-bold text-gray-900 mb-4">Select Cryptocurrency Pairs</h4>
               <p className="text-sm text-gray-600 mb-6">
                 Choose one or more trading pairs for {getConnectorName()}
+                {exchangeSymbols.length > 0 && (
+                  <span className="ml-2 text-green-600">({exchangeSymbols.length} symbols available)</span>
+                )}
               </p>
+
+              {/* Symbol Search */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Search Exchange Symbols
+                  {loadingSymbols && <span className="text-xs text-gray-500 ml-2">(Loading...)</span>}
+                </label>
+                <div className="relative">
+                  <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search symbols (e.g., BTC, ETH, USDT)..."
+                    value={symbolSearch}
+                    onChange={(e) => setSymbolSearch(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+              </div>
+
+              {/* Exchange Symbols */}
+              {exchangeSymbols.length > 0 && (symbolSearch || filteredSymbols.length <= 100) && (
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    {symbolSearch ? `Matching Symbols (${filteredSymbols.length})` : 'Exchange Symbols (showing first 100)'}
+                  </label>
+                  <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                      {filteredSymbols.map(symbol => (
+                        <button
+                          key={symbol}
+                          onClick={() => togglePair(symbol)}
+                          className={`px-3 py-2 text-sm border-2 rounded-lg transition truncate ${
+                            selectedPairs.includes(symbol)
+                              ? 'border-green-500 bg-green-50 text-green-700 font-medium'
+                              : 'border-gray-200 hover:border-green-300 text-gray-700'
+                          }`}
+                          title={symbol}
+                        >
+                          {symbol}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {filteredSymbols.length === 100 && (
+                    <p className="text-xs text-gray-500 mt-2">Use search to find more symbols</p>
+                  )}
+                </div>
+              )}
 
               {/* Popular Pairs */}
               <div className="mb-6">
@@ -200,19 +376,28 @@ function JobWizard({ connectors, onClose, onSave }) {
                   Popular Pairs ({selectedPairs.length} selected)
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-                  {POPULAR_PAIRS.map(pair => (
-                    <button
-                      key={pair}
-                      onClick={() => togglePair(pair)}
-                      className={`px-3 py-2 text-sm border-2 rounded-lg transition ${
-                        selectedPairs.includes(pair)
-                          ? 'border-green-500 bg-green-50 text-green-700 font-medium'
-                          : 'border-gray-200 hover:border-green-300 text-gray-700'
-                      }`}
-                    >
-                      {pair}
-                    </button>
-                  ))}
+                  {POPULAR_PAIRS.map(pair => {
+                    const available = isSymbolAvailable(pair)
+                    return (
+                      <button
+                        key={pair}
+                        onClick={() => togglePair(pair)}
+                        className={`px-3 py-2 text-sm border-2 rounded-lg transition ${
+                          selectedPairs.includes(pair)
+                            ? 'border-green-500 bg-green-50 text-green-700 font-medium'
+                            : available
+                              ? 'border-gray-200 hover:border-green-300 text-gray-700'
+                              : 'border-gray-100 bg-gray-50 text-gray-400'
+                        }`}
+                        title={available ? pair : `${pair} may not be available on this exchange`}
+                      >
+                        {pair}
+                        {!available && exchangeSymbols.length > 0 && (
+                          <span className="ml-1 text-xs text-orange-500">?</span>
+                        )}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
 
@@ -280,10 +465,15 @@ function JobWizard({ connectors, onClose, onSave }) {
               <h4 className="text-lg font-bold text-gray-900 mb-4">Select Timeframes</h4>
               <p className="text-sm text-gray-600 mb-6">
                 Choose timeframes to collect data for each pair
+                {exchangeMetadata?.timeframes && (
+                  <span className="ml-2 text-green-600">
+                    (from {exchangeMetadata.name})
+                  </span>
+                )}
               </p>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {TIMEFRAMES.map(timeframe => (
+                {availableTimeframes.map(timeframe => (
                   <button
                     key={timeframe.id}
                     onClick={() => toggleTimeframe(timeframe.id)}
@@ -306,10 +496,10 @@ function JobWizard({ connectors, onClose, onSave }) {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {selectedTimeframes.map(tf => {
-                      const timeframe = TIMEFRAMES.find(t => t.id === tf)
+                      const timeframe = availableTimeframes.find(t => t.id === tf)
                       return (
                         <span key={tf} className="px-3 py-1 bg-green-600 text-white text-sm rounded-full">
-                          {timeframe.label}
+                          {timeframe?.label || tf}
                         </span>
                       )
                     })}
@@ -317,14 +507,40 @@ function JobWizard({ connectors, onClose, onSave }) {
                 </div>
               )}
 
+              {/* Historical Data Collection Option */}
+              <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <label className="flex items-start cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={collectHistorical}
+                    onChange={(e) => setCollectHistorical(e.target.checked)}
+                    className="mt-1 h-4 w-4 text-amber-600 focus:ring-amber-500 border-gray-300 rounded"
+                  />
+                  <div className="ml-3">
+                    <div className="flex items-center">
+                      <ClockIcon className="w-5 h-5 text-amber-600 mr-2" />
+                      <span className="font-medium text-amber-900">Collect Historical Data</span>
+                    </div>
+                    <p className="text-sm text-amber-700 mt-1">
+                      When enabled, the job will attempt to fetch as much historical data as possible
+                      from the exchange. Each request retrieves up to {exchangeMetadata?.ohlcv_limit || 500} candles.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
               {/* Summary */}
               <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-6">
                 <h5 className="font-bold text-blue-900 mb-3">Summary</h5>
                 <div className="space-y-2 text-sm text-blue-800">
                   <div><strong>Connector:</strong> {getConnectorName()}</div>
                   <div><strong>Pairs:</strong> {selectedPairs.join(', ')}</div>
-                  <div><strong>Timeframes:</strong> {selectedTimeframes.map(tf => TIMEFRAMES.find(t => t.id === tf)?.label).join(', ') || 'None selected'}</div>
+                  <div>
+                    <strong>Timeframes:</strong>{' '}
+                    {selectedTimeframes.map(tf => availableTimeframes.find(t => t.id === tf)?.label || tf).join(', ') || 'None selected'}
+                  </div>
                   <div><strong>Total Jobs:</strong> {totalJobs}</div>
+                  <div><strong>Historical Data:</strong> {collectHistorical ? 'Yes' : 'No'}</div>
                 </div>
                 <div className="mt-4 p-3 bg-blue-100 rounded-lg">
                   <p className="text-sm text-blue-800">
