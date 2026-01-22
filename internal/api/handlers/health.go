@@ -174,6 +174,180 @@ func (h *HealthHandler) GetExchangeSymbols(c *fiber.Ctx) error {
 	})
 }
 
+// ValidateSymbol validates if a symbol exists on an exchange
+// GET /api/v1/exchanges/:id/symbols/validate?symbol=BTC/USDT
+func (h *HealthHandler) ValidateSymbol(c *fiber.Ctx) error {
+	exchangeID := c.Params("id")
+	symbol := c.Query("symbol", "")
+
+	if symbol == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "symbol query parameter is required",
+		})
+	}
+
+	symbols, err := exchange.GetExchangeSymbols(exchangeID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error":   err.Error(),
+			"valid":   false,
+			"symbol":  symbol,
+		})
+	}
+
+	// Check if symbol exists
+	isValid := false
+	for _, s := range symbols {
+		if s == symbol {
+			isValid = true
+			break
+		}
+	}
+
+	// Find similar symbols if not valid
+	var suggestions []string
+	if !isValid {
+		// Extract base currency from symbol (e.g., "BTC" from "BTC/USDT")
+		parts := splitSymbol(symbol)
+		if len(parts) >= 1 {
+			base := parts[0]
+			for _, s := range symbols {
+				if containsIgnoreCase(s, base) {
+					suggestions = append(suggestions, s)
+					if len(suggestions) >= 10 {
+						break
+					}
+				}
+			}
+		}
+	}
+
+	return c.JSON(fiber.Map{
+		"exchange_id": exchangeID,
+		"symbol":      symbol,
+		"valid":       isValid,
+		"suggestions": suggestions,
+	})
+}
+
+// ValidateSymbols validates multiple symbols at once
+// POST /api/v1/exchanges/:id/symbols/validate
+func (h *HealthHandler) ValidateSymbols(c *fiber.Ctx) error {
+	exchangeID := c.Params("id")
+
+	var request struct {
+		Symbols []string `json:"symbols"`
+	}
+
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid request body",
+		})
+	}
+
+	if len(request.Symbols) == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "symbols array is required",
+		})
+	}
+
+	symbols, err := exchange.GetExchangeSymbols(exchangeID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	// Create a set for faster lookup
+	symbolSet := make(map[string]bool, len(symbols))
+	for _, s := range symbols {
+		symbolSet[s] = true
+	}
+
+	// Validate each symbol
+	results := make(map[string]bool)
+	validCount := 0
+	invalidCount := 0
+
+	for _, sym := range request.Symbols {
+		isValid := symbolSet[sym]
+		results[sym] = isValid
+		if isValid {
+			validCount++
+		} else {
+			invalidCount++
+		}
+	}
+
+	return c.JSON(fiber.Map{
+		"exchange_id":   exchangeID,
+		"results":       results,
+		"valid_count":   validCount,
+		"invalid_count": invalidCount,
+		"total":         len(request.Symbols),
+	})
+}
+
+// GetPopularSymbols returns popular trading pairs that are available on the exchange
+// GET /api/v1/exchanges/:id/symbols/popular
+func (h *HealthHandler) GetPopularSymbols(c *fiber.Ctx) error {
+	exchangeID := c.Params("id")
+
+	// Popular pairs in priority order
+	popularPairs := []string{
+		"BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT",
+		"ADA/USDT", "DOGE/USDT", "DOT/USDT", "MATIC/USDT", "AVAX/USDT",
+		"LINK/USDT", "UNI/USDT", "ATOM/USDT", "LTC/USDT", "ETC/USDT",
+		"BCH/USDT", "APT/USDT", "ARB/USDT", "OP/USDT", "INJ/USDT",
+		// Additional popular pairs
+		"BTC/USD", "ETH/USD", "BTC/EUR", "ETH/EUR",
+		"BTC/BUSD", "ETH/BUSD", "BNB/BUSD",
+		"SHIB/USDT", "PEPE/USDT", "WIF/USDT", "BONK/USDT",
+	}
+
+	symbols, err := exchange.GetExchangeSymbols(exchangeID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	// Create a set for faster lookup
+	symbolSet := make(map[string]bool, len(symbols))
+	for _, s := range symbols {
+		symbolSet[s] = true
+	}
+
+	// Filter to only available pairs
+	available := make([]string, 0)
+	for _, pair := range popularPairs {
+		if symbolSet[pair] {
+			available = append(available, pair)
+		}
+	}
+
+	return c.JSON(fiber.Map{
+		"exchange_id": exchangeID,
+		"popular":     available,
+		"count":       len(available),
+	})
+}
+
+// splitSymbol splits a trading pair symbol into base and quote currencies
+func splitSymbol(symbol string) []string {
+	var parts []string
+	for i := 0; i < len(symbol); i++ {
+		if symbol[i] == '/' {
+			parts = append(parts, symbol[:i])
+			if i+1 < len(symbol) {
+				parts = append(parts, symbol[i+1:])
+			}
+			return parts
+		}
+	}
+	return []string{symbol}
+}
+
 // containsIgnoreCase checks if s contains substr (case-insensitive)
 func containsIgnoreCase(s, substr string) bool {
 	sLower := make([]byte, len(s))

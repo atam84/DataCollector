@@ -7,6 +7,7 @@ import (
 )
 
 // OHLCVDocument represents a single document containing all candles for a job
+// DEPRECATED: Use OHLCVChunk instead for chunked storage to avoid 16MB limit
 // Unique identifier: (exchange_id, symbol, timeframe)
 type OHLCVDocument struct {
 	ID           primitive.ObjectID `bson:"_id,omitempty" json:"id"`
@@ -17,6 +18,29 @@ type OHLCVDocument struct {
 	UpdatedAt    time.Time          `bson:"updated_at" json:"updated_at"`
 	CandlesCount int                `bson:"candles_count" json:"candles_count"`
 	Candles      []Candle           `bson:"candles" json:"candles"`
+}
+
+// OHLCVChunk represents a monthly chunk of OHLCV data
+// Unique identifier: (exchange_id, symbol, timeframe, year_month)
+// This solves the MongoDB 16MB document size limit by splitting data into monthly chunks
+type OHLCVChunk struct {
+	ID           primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	ExchangeID   string             `bson:"exchange_id" json:"exchange_id"`
+	Symbol       string             `bson:"symbol" json:"symbol"`
+	Timeframe    string             `bson:"timeframe" json:"timeframe"`
+	YearMonth    string             `bson:"year_month" json:"year_month"` // Format: "YYYY-MM" (e.g., "2024-01")
+	StartTime    time.Time          `bson:"start_time" json:"start_time"` // First candle timestamp in chunk
+	EndTime      time.Time          `bson:"end_time" json:"end_time"`     // Last candle timestamp in chunk
+	CreatedAt    time.Time          `bson:"created_at" json:"created_at"`
+	UpdatedAt    time.Time          `bson:"updated_at" json:"updated_at"`
+	CandlesCount int                `bson:"candles_count" json:"candles_count"`
+	Candles      []Candle           `bson:"candles" json:"candles"` // Sorted by timestamp descending (newest first)
+}
+
+// GetYearMonthFromTimestamp extracts the year-month string from a Unix millisecond timestamp
+func GetYearMonthFromTimestamp(timestampMs int64) string {
+	t := time.UnixMilli(timestampMs)
+	return t.Format("2006-01")
 }
 
 // Candle represents a single OHLCV candle with indicators
@@ -156,4 +180,17 @@ type JobExecutionResult struct {
 	ExecutionTimeMs int64     `json:"execution_time_ms"`
 	NextRunTime     time.Time `json:"next_run_time"`
 	Error           *string   `json:"error,omitempty"`
+}
+
+// OHLCVStats represents aggregate statistics for OHLCV data
+type OHLCVStats struct {
+	ExchangeID       string    `json:"exchange_id,omitempty"`
+	TotalCandles     int64     `json:"total_candles"`
+	TotalChunks      int       `json:"total_chunks"`
+	LegacyDocuments  int       `json:"legacy_documents"`
+	UniqueExchanges  int       `json:"unique_exchanges,omitempty"`
+	UniqueSymbols    int       `json:"unique_symbols"`
+	UniqueTimeframes int       `json:"unique_timeframes"`
+	OldestData       time.Time `json:"oldest_data,omitempty"`
+	NewestData       time.Time `json:"newest_data,omitempty"`
 }

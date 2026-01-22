@@ -23,11 +23,16 @@ type Connector struct {
 
 // RateLimit holds rate limiting configuration and state
 type RateLimit struct {
-	Limit         int       `bson:"limit" json:"limit"`                   // Max requests per period
-	PeriodMs      int       `bson:"period_ms" json:"period_ms"`           // Period in milliseconds
-	Usage         int       `bson:"usage" json:"usage"`                   // Current usage count
-	PeriodStart   time.Time `bson:"period_start" json:"period_start"`     // Start of current period
-	LastJobRunAt  *time.Time `bson:"last_job_run_at,omitempty" json:"last_job_run_at,omitempty"`
+	// Configuration
+	Limit        int `bson:"limit" json:"limit"`                 // Max requests per period
+	PeriodMs     int `bson:"period_ms" json:"period_ms"`         // Period in milliseconds (e.g., 60000 for 1 minute)
+	MinDelayMs   int `bson:"min_delay_ms" json:"min_delay_ms"`   // Minimum delay between API calls in ms (e.g., 5000 for 5 seconds)
+
+	// State tracking
+	Usage         int        `bson:"usage" json:"usage"`                                           // Current usage count in period
+	PeriodStart   time.Time  `bson:"period_start" json:"period_start"`                             // Start of current period
+	LastAPICallAt *time.Time `bson:"last_api_call_at,omitempty" json:"last_api_call_at,omitempty"` // Timestamp of last API call
+	LastJobRunAt  *time.Time `bson:"last_job_run_at,omitempty" json:"last_job_run_at,omitempty"`   // Timestamp of last job execution
 }
 
 // CredentialsRef references API credentials stored in environment
@@ -41,8 +46,9 @@ type ConnectorCreateRequest struct {
 	ExchangeID  string `json:"exchange_id" validate:"required"`
 	DisplayName string `json:"display_name" validate:"required"`
 	RateLimit   struct {
-		Limit    int `json:"limit" validate:"required,min=1"`
-		PeriodMs int `json:"period_ms" validate:"required,min=1000"`
+		Limit      int `json:"limit" validate:"required,min=1"`           // Max requests per period
+		PeriodMs   int `json:"period_ms" validate:"required,min=1000"`    // Period in milliseconds
+		MinDelayMs int `json:"min_delay_ms" validate:"omitempty,min=100"` // Min delay between calls (default: calculated from limit/period)
 	} `json:"rate_limit"`
 }
 
@@ -51,8 +57,9 @@ type ConnectorUpdateRequest struct {
 	DisplayName *string `json:"display_name,omitempty"`
 	Status      *string `json:"status,omitempty" validate:"omitempty,oneof=active disabled"`
 	RateLimit   *struct {
-		Limit    *int `json:"limit,omitempty" validate:"omitempty,min=1"`
-		PeriodMs *int `json:"period_ms,omitempty" validate:"omitempty,min=1000"`
+		Limit      *int `json:"limit,omitempty" validate:"omitempty,min=1"`
+		PeriodMs   *int `json:"period_ms,omitempty" validate:"omitempty,min=1000"`
+		MinDelayMs *int `json:"min_delay_ms,omitempty" validate:"omitempty,min=100"`
 	} `json:"rate_limit,omitempty"`
 }
 

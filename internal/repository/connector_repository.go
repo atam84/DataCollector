@@ -160,6 +160,7 @@ func (r *ConnectorRepository) Delete(ctx context.Context, id string) error {
 }
 
 // AcquireRateLimitToken attempts to acquire a rate limit token atomically
+// DEPRECATED: Use RateLimiter.WaitForSlot() instead for proper throttling
 func (r *ConnectorRepository) AcquireRateLimitToken(ctx context.Context, exchangeID string, weight int) (bool, error) {
 	now := time.Now()
 
@@ -206,4 +207,57 @@ func (r *ConnectorRepository) AcquireRateLimitToken(ctx context.Context, exchang
 	}
 
 	return result.ModifiedCount > 0, nil
+}
+
+// ResetRateLimitPeriod resets the rate limit period for an exchange
+func (r *ConnectorRepository) ResetRateLimitPeriod(ctx context.Context, exchangeID string) error {
+	now := time.Now()
+
+	filter := bson.M{"exchange_id": exchangeID}
+	update := bson.M{
+		"$set": bson.M{
+			"rate_limit.usage":        0,
+			"rate_limit.period_start": now,
+			"updated_at":              now,
+		},
+	}
+
+	_, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("failed to reset rate limit period: %w", err)
+	}
+
+	return nil
+}
+
+// IncrementAPIUsage increments the API usage counter and updates last call timestamp
+func (r *ConnectorRepository) IncrementAPIUsage(ctx context.Context, exchangeID string) error {
+	now := time.Now()
+
+	filter := bson.M{"exchange_id": exchangeID}
+	update := bson.M{
+		"$inc": bson.M{"rate_limit.usage": 1},
+		"$set": bson.M{
+			"rate_limit.last_api_call_at": now,
+			"updated_at":                  now,
+		},
+	}
+
+	_, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("failed to increment API usage: %w", err)
+	}
+
+	return nil
+}
+
+// GetRateLimitStats returns rate limit statistics for a connector
+func (r *ConnectorRepository) GetRateLimitStats(ctx context.Context, exchangeID string) (*models.RateLimit, error) {
+	var connector models.Connector
+	err := r.collection.FindOne(ctx, bson.M{"exchange_id": exchangeID}).Decode(&connector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find connector: %w", err)
+	}
+
+	return &connector.RateLimit, nil
 }

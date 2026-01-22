@@ -31,7 +31,6 @@ services:
       SERVER_HOST: 0.0.0.0
       MONGODB_URI: mongodb://mongodb:27017
       MONGODB_DATABASE: datacollector
-      EXCHANGE_SANDBOX_MODE: "true"
       EXCHANGE_ENABLE_RATE_LIMIT: "true"
       EXCHANGE_REQUEST_TIMEOUT: "30000"
     volumes:

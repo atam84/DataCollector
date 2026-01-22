@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 
+	"github.com/yourusername/datacollector/internal/api/errors"
 	"github.com/yourusername/datacollector/internal/models"
 	"github.com/yourusername/datacollector/internal/repository"
 	"github.com/yourusername/datacollector/internal/service"
@@ -40,24 +43,22 @@ func (h *JobHandler) CreateJob(c *fiber.Ctx) error {
 
 	var req models.JobCreateRequest
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
+		return errors.SendError(c, errors.BadRequest("Invalid request body"))
 	}
 
 	// Validate required fields
 	if req.ConnectorExchangeID == "" || req.Symbol == "" || req.Timeframe == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "connector_exchange_id, symbol, and timeframe are required",
-		})
+		return errors.SendError(c, errors.ValidationError("Missing required fields", map[string]string{
+			"connector_exchange_id": "required",
+			"symbol":                "required",
+			"timeframe":             "required",
+		}))
 	}
 
 	// Verify connector exists
 	_, err := h.connectorRepo.FindByExchangeID(ctx, req.ConnectorExchangeID)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Connector not found for exchange: " + req.ConnectorExchangeID,
-		})
+		return errors.SendError(c, errors.NotFound("Connector"))
 	}
 
 	// Create job model
@@ -69,12 +70,32 @@ func (h *JobHandler) CreateJob(c *fiber.Ctx) error {
 	// Calculate initial next run time
 	nextRunTime := time.Now().Add(1 * time.Minute) // Start in 1 minute
 
+	// Parse dependencies
+	var dependsOn []primitive.ObjectID
+	if len(req.DependsOn) > 0 {
+		for _, depIDStr := range req.DependsOn {
+			depID, err := primitive.ObjectIDFromHex(depIDStr)
+			if err != nil {
+				return errors.SendError(c, errors.ValidationError("Invalid dependency ID format", map[string]string{
+					"dependency_id": depIDStr,
+				}))
+			}
+			// Verify dependency job exists
+			_, err = h.jobRepo.FindByID(ctx, depIDStr)
+			if err != nil {
+				return errors.SendError(c, errors.NotFound(fmt.Sprintf("Dependency job '%s'", depIDStr)))
+			}
+			dependsOn = append(dependsOn, depID)
+		}
+	}
+
 	job := &models.Job{
 		ConnectorExchangeID: req.ConnectorExchangeID,
 		Symbol:              req.Symbol,
 		Timeframe:           req.Timeframe,
 		Status:              status,
 		CollectHistorical:   req.CollectHistorical,
+		DependsOn:           dependsOn,
 		Schedule: models.Schedule{
 			Mode: "timeframe",
 		},
@@ -85,12 +106,16 @@ func (h *JobHandler) CreateJob(c *fiber.Ctx) error {
 
 	// Create in database
 	if err := h.jobRepo.Create(ctx, job); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		if strings.Contains(err.Error(), "already exists") {
+			return errors.SendError(c, errors.Conflict("Job already exists for this exchange/symbol/timeframe combination"))
+		}
+		return errors.SendError(c, errors.DatabaseError("Failed to create job"))
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(job)
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"success": true,
+		"data":    job,
+	})
 }
 
 // CreateJobsBatch creates multiple jobs at once
@@ -104,37 +129,37 @@ func (h *JobHandler) CreateJobsBatch(c *fiber.Ctx) error {
 	}
 
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
+		return errors.SendError(c, errors.BadRequest("Invalid request body"))
 	}
 
 	if len(req.Jobs) == 0 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "No jobs provided",
-		})
+		return errors.SendError(c, errors.ValidationError("No jobs provided", nil))
 	}
 
 	if len(req.Jobs) > 100 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Cannot create more than 100 jobs at once",
-		})
+		return errors.SendError(c, errors.ValidationError("Batch size exceeds limit", map[string]interface{}{
+			"max_jobs": 100,
+			"provided": len(req.Jobs),
+		}))
 	}
 
 	// Validate all jobs first
 	for i, jobReq := range req.Jobs {
 		if jobReq.ConnectorExchangeID == "" || jobReq.Symbol == "" || jobReq.Timeframe == "" {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": fmt.Sprintf("Job %d: connector_exchange_id, symbol, and timeframe are required", i+1),
-			})
+			return errors.SendError(c, errors.ValidationError(
+				fmt.Sprintf("Job %d: missing required fields", i+1),
+				map[string]string{
+					"connector_exchange_id": "required",
+					"symbol":                "required",
+					"timeframe":             "required",
+				},
+			))
 		}
 
 		// Verify connector exists
 		_, err := h.connectorRepo.FindByExchangeID(ctx, jobReq.ConnectorExchangeID)
 		if err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": fmt.Sprintf("Job %d: Connector not found for exchange: %s", i+1, jobReq.ConnectorExchangeID),
-			})
+			return errors.SendError(c, errors.NotFound(fmt.Sprintf("Job %d: Connector '%s'", i+1, jobReq.ConnectorExchangeID)))
 		}
 	}
 
@@ -210,14 +235,13 @@ func (h *JobHandler) GetJobs(c *fiber.Ctx) error {
 
 	jobs, err := h.jobRepo.FindAll(ctx, filter)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		return errors.SendError(c, errors.DatabaseError("Failed to retrieve jobs"))
 	}
 
 	return c.JSON(fiber.Map{
-		"data":  jobs,
-		"count": len(jobs),
+		"success": true,
+		"data":    jobs,
+		"count":   len(jobs),
 	})
 }
 
@@ -230,12 +254,16 @@ func (h *JobHandler) GetJob(c *fiber.Ctx) error {
 	id := c.Params("id")
 	job, err := h.jobRepo.FindByID(ctx, id)
 	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid job ID format"))
+		}
+		return errors.SendError(c, errors.NotFound("Job"))
 	}
 
-	return c.JSON(job)
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data":    job,
+	})
 }
 
 // GetJobsByConnector retrieves all jobs for a connector
@@ -248,12 +276,11 @@ func (h *JobHandler) GetJobsByConnector(c *fiber.Ctx) error {
 
 	jobs, err := h.jobRepo.FindByConnector(ctx, exchangeID)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		return errors.SendError(c, errors.DatabaseError("Failed to retrieve jobs for connector"))
 	}
 
 	return c.JSON(fiber.Map{
+		"success":     true,
 		"data":        jobs,
 		"count":       len(jobs),
 		"exchange_id": exchangeID,
@@ -270,9 +297,7 @@ func (h *JobHandler) UpdateJob(c *fiber.Ctx) error {
 
 	var req models.JobUpdateRequest
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
+		return errors.SendError(c, errors.BadRequest("Invalid request body"))
 	}
 
 	// Build update map
@@ -281,9 +306,10 @@ func (h *JobHandler) UpdateJob(c *fiber.Ctx) error {
 	if req.Status != nil {
 		validStatuses := map[string]bool{"active": true, "paused": true, "error": true}
 		if !validStatuses[*req.Status] {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "status must be 'active', 'paused', or 'error'",
-			})
+			return errors.SendError(c, errors.ValidationError("Invalid status value", map[string]interface{}{
+				"status":         *req.Status,
+				"allowed_values": []string{"active", "paused", "error"},
+			}))
 		}
 		update["status"] = *req.Status
 	}
@@ -296,28 +322,59 @@ func (h *JobHandler) UpdateJob(c *fiber.Ctx) error {
 		update["collect_historical"] = *req.CollectHistorical
 	}
 
+	// Handle dependencies update
+	if req.DependsOn != nil {
+		var dependsOn []primitive.ObjectID
+		for _, depIDStr := range *req.DependsOn {
+			depID, err := primitive.ObjectIDFromHex(depIDStr)
+			if err != nil {
+				return errors.SendError(c, errors.ValidationError("Invalid dependency ID format", map[string]string{
+					"dependency_id": depIDStr,
+				}))
+			}
+			// Verify dependency job exists
+			_, err = h.jobRepo.FindByID(ctx, depIDStr)
+			if err != nil {
+				return errors.SendError(c, errors.NotFound(fmt.Sprintf("Dependency job '%s'", depIDStr)))
+			}
+			// Check for circular dependency
+			hasCycle, err := h.jobRepo.CheckCircularDependency(ctx, id, depIDStr)
+			if err != nil {
+				return errors.SendError(c, errors.DatabaseError("Failed to check circular dependency"))
+			}
+			if hasCycle {
+				return errors.SendError(c, errors.ValidationError("Circular dependency detected", map[string]string{
+					"dependency_id": depIDStr,
+					"error":         "Adding this dependency would create a cycle",
+				}))
+			}
+			dependsOn = append(dependsOn, depID)
+		}
+		update["depends_on"] = dependsOn
+	}
+
 	if len(update) == 0 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "No fields to update",
-		})
+		return errors.SendError(c, errors.BadRequest("No fields to update"))
 	}
 
 	// Update job
 	if err := h.jobRepo.Update(ctx, id, update); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		if strings.Contains(err.Error(), "not found") {
+			return errors.SendError(c, errors.NotFound("Job"))
+		}
+		return errors.SendError(c, errors.DatabaseError("Failed to update job"))
 	}
 
 	// Fetch updated job
 	job, err := h.jobRepo.FindByID(ctx, id)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		return errors.SendError(c, errors.DatabaseError("Failed to retrieve updated job"))
 	}
 
-	return c.JSON(job)
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data":    job,
+	})
 }
 
 // PauseJob pauses a job
@@ -329,21 +386,21 @@ func (h *JobHandler) PauseJob(c *fiber.Ctx) error {
 	id := c.Params("id")
 
 	if err := h.jobRepo.UpdateStatus(ctx, id, "paused"); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		if strings.Contains(err.Error(), "not found") {
+			return errors.SendError(c, errors.NotFound("Job"))
+		}
+		return errors.SendError(c, errors.DatabaseError("Failed to pause job"))
 	}
 
 	job, err := h.jobRepo.FindByID(ctx, id)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		return errors.SendError(c, errors.DatabaseError("Failed to retrieve job"))
 	}
 
 	return c.JSON(fiber.Map{
+		"success": true,
 		"message": "Job paused successfully",
-		"job":     job,
+		"data":    job,
 	})
 }
 
@@ -358,42 +415,38 @@ func (h *JobHandler) ResumeJob(c *fiber.Ctx) error {
 	// Get job to check connector
 	job, err := h.jobRepo.FindByID(ctx, id)
 	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid job ID format"))
+		}
+		return errors.SendError(c, errors.NotFound("Job"))
 	}
 
 	// Check if connector is active
 	connector, err := h.connectorRepo.FindByExchangeID(ctx, job.ConnectorExchangeID)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Connector not found",
-		})
+		return errors.SendError(c, errors.NotFound("Connector"))
 	}
 
 	if connector.Status != "active" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Cannot resume job: connector is suspended. Please resume the connector first.",
-		})
+		return errors.SendError(c, errors.ConnectorInactive(connector.ExchangeID).WithDetails(map[string]string{
+			"action": "Please resume the connector first before resuming this job",
+		}))
 	}
 
 	// Resume the job
 	if err := h.jobRepo.UpdateStatus(ctx, id, "active"); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		return errors.SendError(c, errors.DatabaseError("Failed to resume job"))
 	}
 
 	job, err = h.jobRepo.FindByID(ctx, id)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		return errors.SendError(c, errors.DatabaseError("Failed to retrieve job"))
 	}
 
 	return c.JSON(fiber.Map{
+		"success": true,
 		"message": "Job resumed successfully",
-		"job":     job,
+		"data":    job,
 	})
 }
 
@@ -406,9 +459,13 @@ func (h *JobHandler) DeleteJob(c *fiber.Ctx) error {
 	id := c.Params("id")
 
 	if err := h.jobRepo.Delete(ctx, id); err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid job ID format"))
+		}
+		if strings.Contains(err.Error(), "not found") {
+			return errors.SendError(c, errors.NotFound("Job"))
+		}
+		return errors.SendError(c, errors.DatabaseError("Failed to delete job"))
 	}
 
 	return c.Status(fiber.StatusNoContent).Send(nil)
@@ -425,17 +482,20 @@ func (h *JobHandler) ExecuteJob(c *fiber.Ctx) error {
 	// Execute the job
 	result, err := h.jobExecutor.ExecuteJob(ctx, id)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		if strings.Contains(err.Error(), "not found") {
+			return errors.SendError(c, errors.NotFound("Job"))
+		}
+		if strings.Contains(err.Error(), "locked") {
+			return errors.SendError(c, errors.JobLocked(id))
+		}
+		return errors.SendError(c, errors.ExchangeError("Job execution failed: "+err.Error()))
 	}
 
-	// Return result
-	if !result.Success {
-		return c.Status(fiber.StatusOK).JSON(result)
-	}
-
-	return c.JSON(result)
+	// Return result with success flag
+	return c.JSON(fiber.Map{
+		"success": result.Success,
+		"data":    result,
+	})
 }
 
 // GetQueue retrieves upcoming job executions
@@ -448,9 +508,7 @@ func (h *JobHandler) GetQueue(c *fiber.Ctx) error {
 	filter := bson.M{"status": "active"}
 	jobs, err := h.jobRepo.FindAll(ctx, filter)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		return errors.SendError(c, errors.DatabaseError("Failed to retrieve job queue"))
 	}
 
 	// Sort jobs by next_run_time (ascending)
@@ -472,8 +530,9 @@ func (h *JobHandler) GetQueue(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"data":  queuedJobs,
-		"count": len(queuedJobs),
+		"success": true,
+		"data":    queuedJobs,
+		"count":   len(queuedJobs),
 	})
 }
 
@@ -488,9 +547,10 @@ func (h *JobHandler) GetJobOHLCVData(c *fiber.Ctx) error {
 	// Get job to verify it exists and get details
 	job, err := h.jobRepo.FindByID(ctx, id)
 	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "Job not found",
-		})
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid job ID format"))
+		}
+		return errors.SendError(c, errors.NotFound("Job"))
 	}
 
 	// Get pagination parameters
@@ -516,23 +576,20 @@ func (h *JobHandler) GetJobOHLCVData(c *fiber.Ctx) error {
 	// Count total records
 	total, err := h.ohlcvRepo.Count(ctx, filter)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to count records",
-		})
+		return errors.SendError(c, errors.DatabaseError("Failed to count OHLCV records"))
 	}
 
 	// Fetch data with pagination
 	data, err := h.ohlcvRepo.FindWithPagination(ctx, filter, int64(skip), int64(limit))
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to fetch OHLCV data",
-		})
+		return errors.SendError(c, errors.DatabaseError("Failed to fetch OHLCV data"))
 	}
 
 	totalPages := (total + int64(limit) - 1) / int64(limit)
 
 	return c.JSON(fiber.Map{
-		"data": data,
+		"success": true,
+		"data":    data,
 		"pagination": fiber.Map{
 			"page":        page,
 			"limit":       limit,
@@ -551,12 +608,21 @@ func (h *JobHandler) ExportJobData(c *fiber.Ctx) error {
 	id := c.Params("id")
 	format := c.Query("format", "csv")
 
+	// Validate format
+	if format != "csv" && format != "json" {
+		return errors.SendError(c, errors.ValidationError("Invalid export format", map[string]interface{}{
+			"format":         format,
+			"allowed_values": []string{"csv", "json"},
+		}))
+	}
+
 	// Get job details
 	job, err := h.jobRepo.FindByID(ctx, id)
 	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "Job not found",
-		})
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid job ID format"))
+		}
+		return errors.SendError(c, errors.NotFound("Job"))
 	}
 
 	// Fetch all OHLCV data for this job
@@ -568,9 +634,11 @@ func (h *JobHandler) ExportJobData(c *fiber.Ctx) error {
 
 	data, err := h.ohlcvRepo.FindWithPagination(ctx, filter, 0, 10000) // Limit to 10000 records
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to fetch data for export",
-		})
+		return errors.SendError(c, errors.DatabaseError("Failed to fetch data for export"))
+	}
+
+	if len(data) == 0 {
+		return errors.SendError(c, errors.NoData(fmt.Sprintf("%s/%s", job.Symbol, job.Timeframe)))
 	}
 
 	if format == "json" {
@@ -609,9 +677,10 @@ func (h *JobHandler) ExportJobDataForML(c *fiber.Ctx) error {
 	// Get job details
 	job, err := h.jobRepo.FindByID(ctx, id)
 	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "Job not found",
-		})
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid job ID format"))
+		}
+		return errors.SendError(c, errors.NotFound("Job"))
 	}
 
 	// Fetch all OHLCV data
@@ -623,9 +692,11 @@ func (h *JobHandler) ExportJobDataForML(c *fiber.Ctx) error {
 
 	data, err := h.ohlcvRepo.FindWithPagination(ctx, filter, 0, 10000)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to fetch data for ML export",
-		})
+		return errors.SendError(c, errors.DatabaseError("Failed to fetch data for ML export"))
+	}
+
+	if len(data) == 0 {
+		return errors.SendError(c, errors.NoData(fmt.Sprintf("%s/%s", job.Symbol, job.Timeframe)))
 	}
 
 	c.Set("Content-Type", "text/csv")
@@ -661,6 +732,144 @@ func (h *JobHandler) ExportJobDataForML(c *fiber.Ctx) error {
 	}
 
 	return c.SendString(csv)
+}
+
+// GetJobDependencies retrieves the dependencies for a job
+// GET /api/v1/jobs/:id/dependencies
+func (h *JobHandler) GetJobDependencies(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	id := c.Params("id")
+
+	// Get dependency status
+	status, err := h.jobRepo.GetDependencyStatus(ctx, id, 1*time.Hour)
+	if err != nil {
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid job ID format"))
+		}
+		if strings.Contains(err.Error(), "not found") {
+			return errors.SendError(c, errors.NotFound("Job"))
+		}
+		return errors.SendError(c, errors.DatabaseError("Failed to get dependency status"))
+	}
+
+	// Get detailed info about each dependency
+	job, _ := h.jobRepo.FindByID(ctx, id)
+	var dependencyJobs []*models.Job
+	if len(job.DependsOn) > 0 {
+		dependencyJobs, _ = h.jobRepo.FindByIDs(ctx, job.DependsOn)
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data": fiber.Map{
+			"status":           status,
+			"dependency_jobs":  dependencyJobs,
+			"dependency_count": len(job.DependsOn),
+		},
+	})
+}
+
+// SetJobDependencies sets the dependencies for a job
+// PUT /api/v1/jobs/:id/dependencies
+func (h *JobHandler) SetJobDependencies(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	id := c.Params("id")
+
+	var req struct {
+		DependsOn []string `json:"depends_on"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return errors.SendError(c, errors.BadRequest("Invalid request body"))
+	}
+
+	// Parse and validate dependencies
+	var dependsOn []primitive.ObjectID
+	for _, depIDStr := range req.DependsOn {
+		depID, err := primitive.ObjectIDFromHex(depIDStr)
+		if err != nil {
+			return errors.SendError(c, errors.ValidationError("Invalid dependency ID format", map[string]string{
+				"dependency_id": depIDStr,
+			}))
+		}
+
+		// Verify dependency job exists
+		_, err = h.jobRepo.FindByID(ctx, depIDStr)
+		if err != nil {
+			return errors.SendError(c, errors.NotFound(fmt.Sprintf("Dependency job '%s'", depIDStr)))
+		}
+
+		// Check for circular dependency
+		hasCycle, err := h.jobRepo.CheckCircularDependency(ctx, id, depIDStr)
+		if err != nil {
+			return errors.SendError(c, errors.DatabaseError("Failed to check circular dependency"))
+		}
+		if hasCycle {
+			return errors.SendError(c, errors.ValidationError("Circular dependency detected", map[string]string{
+				"dependency_id": depIDStr,
+				"error":         "Adding this dependency would create a cycle",
+			}))
+		}
+
+		dependsOn = append(dependsOn, depID)
+	}
+
+	// Set dependencies
+	if err := h.jobRepo.SetDependencies(ctx, id, dependsOn); err != nil {
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid job ID format"))
+		}
+		if strings.Contains(err.Error(), "not found") {
+			return errors.SendError(c, errors.NotFound("Job"))
+		}
+		return errors.SendError(c, errors.DatabaseError("Failed to set dependencies"))
+	}
+
+	// Get updated job
+	job, err := h.jobRepo.FindByID(ctx, id)
+	if err != nil {
+		return errors.SendError(c, errors.DatabaseError("Failed to retrieve job"))
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": fmt.Sprintf("Set %d dependencies", len(dependsOn)),
+		"data":    job,
+	})
+}
+
+// GetJobDependents retrieves jobs that depend on a given job
+// GET /api/v1/jobs/:id/dependents
+func (h *JobHandler) GetJobDependents(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	id := c.Params("id")
+
+	// Verify job exists
+	_, err := h.jobRepo.FindByID(ctx, id)
+	if err != nil {
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid job ID format"))
+		}
+		return errors.SendError(c, errors.NotFound("Job"))
+	}
+
+	// Find jobs that depend on this job
+	dependents, err := h.jobRepo.FindJobsDependingOn(ctx, id)
+	if err != nil {
+		return errors.SendError(c, errors.DatabaseError("Failed to find dependent jobs"))
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data":    dependents,
+		"count":   len(dependents),
+	})
 }
 
 // Helper function

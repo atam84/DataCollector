@@ -219,12 +219,6 @@ function JobDetails({ job, connector }) {
                   <p className="text-base text-gray-900 mt-1">{connector.exchange_id}</p>
                 </div>
                 <div>
-                  <span className="text-sm font-medium text-gray-500">Mode</span>
-                  <p className="text-base text-gray-900 mt-1">
-                    {connector.sandbox_mode ? 'Sandbox (Testnet)' : 'Production'}
-                  </p>
-                </div>
-                <div>
                   <span className="text-sm font-medium text-gray-500">Connector Status</span>
                   <p className="text-base text-gray-900 mt-1">
                     <span className={`px-2 py-1 text-xs font-medium rounded ${

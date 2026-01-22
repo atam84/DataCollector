@@ -48,4 +48,7 @@ logs/
 # Temporary files
 tmp/
 temp/
-api
+
+# Binary output
+/api
+/bin/api

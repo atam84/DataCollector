@@ -1,278 +1,253 @@
 # Pending Tasks
 
+**Last Updated:** 2026-01-22
+**Current Version:** v1.0.5b
+**Current Branch:** main
+
+---
+
+## Error Analysis Summary
+
+| Error Type | Affected Exchanges | Root Cause | Impact |
+|------------|-------------------|------------|--------|
+| `RateLimitExceeded` | **ALL** | Too many API calls, insufficient delay between requests | **CRITICAL** - Jobs fail |
+| `document is too large` | **ALL** | MongoDB 16MB limit exceeded (40k+ candles) | **HIGH** - Data loss |
+| `date of query is too wide` | **ALL** | Exchange rejects wide historical date ranges | **MEDIUM** - First fetch fails |
+
+**Example Errors Observed:**
+- OKX: `{"msg":"Too Many Requests","code":"50011"}`
+- BingX: `{"code":100204,"msg":"date of query is too wide."}`
+- All: `failed to insert new OHLCV document: an inserted document is too large`
+
+---
+
+## ✅ P0 - Critical (COMPLETED 2026-01-22)
+
+| # | Issue | Description | Status |
+|---|-------|-------------|--------|
+| **P0.1** | **Rate Limit - Per-Connector Throttling** | RateLimiter service with min delay between calls (MinDelayMs) | ✅ Done |
+| **P0.2** | **Rate Limit - API Call Counter** | IncrementAPIUsage() tracks each call, LastAPICallAt timestamp | ✅ Done |
+| **P0.3** | **Rate Limit - Exchange-Level Config** | Limit, PeriodMs, MinDelayMs in Connector model | ✅ Done |
+| **P0.4** | **MongoDB Document Size Limit** | OHLCVChunk model with monthly chunking (ohlcv_chunks collection) | ✅ Done |
+
+### Rate Limit Architecture (Target Design)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    RATE LIMIT MANAGEMENT                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Exchange Config (stored in DB):                                │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ exchange_id: "okx"                                       │   │
+│  │ rate_limit_per_minute: 20                                │   │
+│  │ min_delay_ms: 3000  (calculated: 60000/20 = 3000ms)     │   │
+│  │ api_calls_used: 15                                       │   │
+│  │ api_calls_reset_at: timestamp (next minute)             │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Before Each API Call:                                          │
+│  1. Check time since last call on this connector                │
+│  2. If < min_delay_ms → sleep(remaining)                        │
+│  3. Check api_calls_used < rate_limit_per_minute               │
+│  4. If limit reached → sleep until reset_at                     │
+│  5. Make API call                                               │
+│  6. Update api_calls_used++                                     │
+│  7. Update last_call_timestamp                                  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🟠 P1 - High Priority (Mostly COMPLETED 2026-01-22)
+
+| # | Issue | Description | Status |
+|---|-------|-------------|--------|
+| **P1.1** | **Exchange Date Range Fallback** | dateRangeFallbacks array (5y→1y→6m→3m→1m), isDateRangeError() detection | ✅ Done |
+| **P1.2** | **Error Display - Modal for Long Errors** | ErrorModal component, extractMainError(), truncateText() helpers | ✅ Done |
+| **P1.3** | **Cryptocurrency Pairs Management** | Dynamic popular pairs, symbol validation endpoints, improved UX | ✅ Done |
+| **P1.4** | **Remove Sandbox Mode** | Removed from frontend, docker-compose (Go code had none) | ✅ Done |
+
+---
+
+## 🟡 P2 - Medium Priority
+
+| # | Issue | Description | Status |
+|---|-------|-------------|--------|
+| P2.1 | Indicator Config Affectation | Configs saved but not enforced during calculation | ✅ Done |
+| P2.2 | Connector Statistics Dashboard | Data volume, job count, last run times, API calls used | ✅ Done |
+| P2.3 | Job Error Recovery | Automatic retry with exponential backoff on transient errors | ✅ Done |
+| P2.4 | Rate Limit Visualization | Show remaining calls, cooldown timer in UI | ✅ Done |
+| P2.5 | Comprehensive error handling in API | Better error types and messages | ✅ Done |
+| P2.6 | Validation for indicator parameters | Min/max values enforcement | ✅ Done |
+| P2.7 | Unit tests for config merge logic | Test coverage | ✅ Done |
+| P2.8 | Job dependency management | Run job A before job B | ✅ Done |
+| P2.9 | Alerting system for failed jobs | Notifications on failures | ✅ Done |
+| P2.10 | Data retention policies | Auto-cleanup old candles | ✅ Done |
+
+---
+
+## 🟢 P3 - Low Priority
+
+| # | Issue | Description |
+|---|-------|-------------|
+| P3.1 | API documentation (Swagger/OpenAPI) | |
+| P3.2 | Add more trading pairs to JobWizard | |
+| P3.3 | Connector health monitoring dashboard | |
+| P3.4 | Data quality metrics (missing candles, gaps) | |
+| P3.5 | Custom timeframes support | |
+| P3.6 | WebSocket real-time updates | |
+| P3.7 | Multi-user authentication | |
+
+---
+
+## 🔵 Future Enhancements
+
+| # | Issue | Description |
+|---|-------|-------------|
+| F1 | Machine learning model training integration | |
+| F2 | Strategy backtesting framework | |
+| F3 | Alert system for indicator threshold breaches | |
+| F4 | Correlation analysis between pairs | |
+| F5 | Market regime detection | |
+| F6 | Custom indicator formula builder | |
+
+---
+
+## 🗑️ Removed Items
+
+| Item | Reason |
+|------|--------|
+| Sandbox mode testing | Never use sandbox - removed from scope |
+
+---
+
 ## Recent Completed Work (2026-01-21)
 
-### ✅ v1.0.5b - Dynamic Exchange Support & Historical Data Collection
+### v1.0.5b - Dynamic Exchange Support & Historical Data Collection
 
-**Dynamic CCXT Exchange Support (Completed)**
+**Dynamic CCXT Exchange Support:**
 - ✅ Dynamic exchange discovery from `ccxt.Exchanges` (111 exchanges supported)
 - ✅ Auto-detection of OHLCV support via `exchange.GetHas()`
 - ✅ Dynamic metadata fetching: `GetTimeframes()`, `GetFeatures()`, `GetHas()`
 - ✅ Thread-safe caching for exchange metadata and supported list
 - ✅ Cache refresh endpoint: `POST /api/v1/exchanges/refresh`
 - ✅ Debug endpoint: `GET /api/v1/exchanges/:id/debug`
-- ✅ Fixed CCXTService to use generic adapter (was hardcoded to only bybit/binance)
 
-**Historical Data Collection (Completed)**
+**Historical Data Collection:**
 - ✅ Full historical data fetching with pagination
-- ✅ Starts from 5 years ago (or exchange's earliest data)
 - ✅ Batched fetching using exchange's OHLCV limit
 - ✅ Forward pagination until reaching present time
-- ✅ Rate limit respect with delays between batches
-- ✅ Graceful error handling (returns partial data on errors)
 
-**CandlestickChart Component (Completed)**
+**CandlestickChart Component:**
 - ✅ Professional candlestick visualization with lightweight-charts v5
-- ✅ Volume histogram with color coding (green/red)
-- ✅ Indicator overlay support (SMA, EMA, Bollinger Bands, etc.)
+- ✅ Volume histogram with color coding
+- ✅ Indicator overlay support (SMA, EMA, Bollinger Bands)
 - ✅ Separate panes for momentum indicators (RSI, MACD, Stochastic)
-- ✅ Collapsible indicator groups with enable/disable checkboxes
-- ✅ Interactive legend showing active indicators
-- ✅ Fixed v5 API compatibility (`addSeries()` instead of `addCandlestickSeries()`)
 
-**UI Enhancements (Completed)**
-- ✅ Refresh buttons on all pages (Dashboard, Connectors, Jobs, Queue)
-- ✅ Consistent icon-style buttons with spin animation during loading
-- ✅ Exchange selection in wizards now uses dynamic list
+**UI Enhancements:**
+- ✅ Refresh buttons on all pages
+- ✅ Exchange selection in wizards uses dynamic list
 
 ---
 
-## Recent Completed Work (2026-01-20)
+## Files Modified (2026-01-22)
 
-### ✅ Completed Features
+### Rate Limit System (P0.1-P0.3): ✅ DONE
+- `/internal/models/connector.go` - Added MinDelayMs, LastAPICallAt fields
+- `/internal/service/rate_limiter.go` - **NEW** RateLimiter service with WaitForSlot()
+- `/internal/service/ccxt_service.go` - Integrated rate limiter, context support
+- `/internal/service/job_executor.go` - Uses rate-limited CCXT service
+- `/internal/repository/connector_repository.go` - Added IncrementAPIUsage(), ResetRateLimitPeriod()
+- `/internal/api/handlers/connector_handler.go` - Added rate limit status/reset endpoints
+- `/cmd/api/main.go` - Added routes for rate limit endpoints
 
-**Exchange Validation & Support (Completed)**
-- ✅ Exchange validation system with `TestExchangeAvailability()`
-- ✅ Support for 111 exchanges (dynamic from CCXT)
-- ✅ `/api/v1/exchanges` endpoint returning supported exchanges
-- ✅ `/api/v1/exchanges/test` endpoint for testing availability
-- ✅ `/api/v1/exchanges/metadata` endpoint for all exchange metadata
-- ✅ Exchange ID mapping (gate → gateio, etc.)
+### MongoDB Chunking (P0.4): ✅ DONE
+- `/internal/models/ohlcv.go` - Added OHLCVChunk model, GetYearMonthFromTimestamp()
+- `/internal/repository/ohlcv_repository.go` - Chunked storage (ohlcv_chunks collection)
 
-**Wizard-Based Workflows (Completed)**
-- ✅ ConnectorWizard with 2-step flow (exchange + indicators)
-- ✅ JobWizard with 4-step flow (connector + pairs + timeframes + indicators)
-- ✅ Visual exchange selection grid with rate limits
-- ✅ Progress bars and step validation
-- ✅ Edit rate limit functionality for connectors
+### Date Range Fallback (P1.1): ✅ DONE
+- `/internal/service/ccxt_service.go` - Added dateRangeFallbacks, isDateRangeError()
 
-**Batch Operations & Data Export (Completed)**
-- ✅ `/api/v1/jobs/batch` endpoint (up to 100 jobs)
-- ✅ Automatic job start time staggering
-- ✅ Multi-select for cryptocurrency pairs and timeframes
-- ✅ `/api/v1/jobs/:id/ohlcv` endpoint with pagination
-- ✅ `/api/v1/jobs/:id/export` endpoint (CSV/JSON formats)
-- ✅ `/api/v1/jobs/:id/export/ml` endpoint (ML-optimized format)
+### Error Modal (P1.2): ✅ DONE
+- `/web/src/components/JobList.jsx` - Added error modal, extractMainError(), truncateText()
 
-**Job Management Enhancements (Completed)**
-- ✅ Search bar for filtering jobs by symbol
-- ✅ Multi-connector filter with checkboxes
-- ✅ JobDetails component with 3 tabs (Overview, Raw Data, Charts)
-- ✅ lightweight-charts integration for data visualization
-- ✅ Clickable symbols opening detailed view
-- ✅ Export buttons with file download handling
+### Remove Sandbox (P1.4): ✅ DONE
+- `/web/src/components/JobDetails.jsx` - Removed sandbox_mode reference
+- `/docker-compose.dev.yml` - Removed EXCHANGE_SANDBOX_MODE
 
-**UI Improvements (Completed)**
-- ✅ Heroicons integration replacing text in buttons
-- ✅ Indicators documentation page with descriptions
-- ✅ Info tooltips for indicators in configuration modals
-- ✅ Run now button in queue items
+### Cryptocurrency Pairs Management (P1.3): ✅ DONE
+- `/internal/api/handlers/health.go` - Added ValidateSymbol, ValidateSymbols, GetPopularSymbols endpoints
+- `/cmd/api/main.go` - Added routes for new symbol validation endpoints
+- `/web/src/components/JobWizard.jsx` - Dynamic popular pairs, validation before job creation, quick select actions
 
----
+### Rate Limit Visualization (P2.4): ✅ DONE
+- `/web/src/components/ConnectorList.jsx` - Real-time rate limit status, cooldown indicator, detailed settings modal
+- `/web/src/components/Dashboard.jsx` - Rate limit overview section with all connectors
 
-## Indicator Configuration - Affectation Issues
+### Connector Statistics Dashboard (P2.2): ✅ DONE
+- `/internal/models/ohlcv.go` - Added OHLCVStats model
+- `/internal/repository/ohlcv_repository.go` - Added GetStatsByExchange(), GetAllStats() methods
+- `/internal/api/handlers/connector_handler.go` - Added GetConnectorStats(), GetAllStats() endpoints
+- `/cmd/api/main.go` - Added /stats and /connectors/:id/stats routes
+- `/web/src/components/Dashboard.jsx` - Data statistics section with candle counts, symbols, timeframes
 
-**Status:** ⚠️ NOT WORKING AS EXPECTED
+### Job Error Recovery (P2.3): ✅ DONE
+- `/internal/models/job.go` - Added ConsecutiveFailures and LastFailureTime to RunState
+- `/internal/service/job_executor.go` - Added handleExecutionError() with exponential backoff, isTransientError(), calculateBackoff()
+- `/internal/repository/job_repository.go` - Added IncrementConsecutiveFailures(), ResetConsecutiveFailures(), GetJobsWithFailures()
 
-**Problem:**
-The indicator configuration system has been implemented with GET/PUT/PATCH endpoints and UI, but the actual affectation/application of configurations is not working correctly. When indicators are enabled/disabled via the configuration UI, they are not being properly enforced during calculation.
+### Comprehensive Error Handling (P2.5): ✅ DONE
+- `/internal/api/errors/errors.go` - **NEW** Standardized error types and response format
+- `/internal/api/handlers/job_handler.go` - Updated all endpoints to use standardized errors
+- `/internal/api/handlers/connector_handler.go` - Updated all endpoints to use standardized errors
 
-**What's Implemented:**
-- ✅ Configuration UI for connectors and jobs
-- ✅ GET/PUT/PATCH API endpoints
-- ✅ Config saved to database
-- ✅ Config merge logic (job > connector > defaults)
+### Alerting System (P2.9): ✅ DONE
+- `/internal/models/alert.go` - **NEW** Alert model with types, severities, and statuses
+- `/internal/repository/alert_repository.go` - **NEW** Alert CRUD operations and summary
+- `/internal/service/alert_service.go` - **NEW** Alert generation for job failures, connector issues
+- `/internal/api/handlers/alert_handler.go` - **NEW** Alert API endpoints
+- `/cmd/api/main.go` - Added alert routes and service initialization
 
-**What's NOT Working:**
-- ❌ Configurations not properly applied during indicator calculation
-- ❌ Disabling indicators doesn't prevent their calculation
-- ❌ Only enabled indicators should be calculated
-- ❌ Need verification that config is actually used by indicator service
+### Data Retention Policies (P2.10): ✅ DONE
+- `/internal/models/retention.go` - **NEW** Retention policy and config models
+- `/internal/repository/retention_repository.go` - **NEW** Policy CRUD, chunk deletion, usage stats
+- `/internal/service/retention_service.go` - **NEW** Cleanup operations, data usage tracking
+- `/internal/api/handlers/retention_handler.go` - **NEW** Retention API endpoints
+- `/cmd/api/main.go` - Added retention routes and service initialization
 
-**Files Involved:**
-- `/internal/service/indicators/service.go` - CalculateAll method
-- `/internal/service/indicators/config.go` - MergeConfigs logic
-- `/internal/service/job_executor.go` - GetEffectiveConfig usage
-- `/internal/service/recalculator.go` - Recalculation with configs
+### Indicator Config Affectation (P2.1): ✅ DONE
+- `/internal/models/indicator_config.go` - **NEW** Full config model with TrendConfig, MomentumConfig, VolatilityConfig, VolumeConfig
+- `/internal/repository/indicator_config_repository.go` - **NEW** Config CRUD, SetDefault(), FindDefault()
+- `/internal/service/indicators/service.go` - Updated to use config, added CalculateWithConfig(), configurable periods
+- `/internal/api/handlers/indicator_config_handler.go` - **NEW** Config API endpoints (CRUD, set default, builtin defaults)
+- `/cmd/api/main.go` - Added indicator config routes
 
-**Next Steps:**
-1. Add debug logging to verify config is passed to indicator service
-2. Verify CalculateAll actually checks config.Enabled flags
-3. Test with only 1-2 indicators enabled
-4. Verify database stores config correctly
-5. Test recalculation applies new configs
+### Indicator Parameter Validation (P2.6): ✅ DONE
+- `/internal/models/indicator_config.go` - Added Validate() methods with min/max constraints, ValidationError type
+- `/internal/api/handlers/indicator_config_handler.go` - Added validation on create/update, GetValidationRules(), ValidateConfig() endpoints
+- `/cmd/api/main.go` - Added validation-rules and validate routes
 
-**Priority:** Medium (system works with defaults, but user configs not respected)
+### Unit Tests for Config Validation (P2.7): ✅ DONE
+- `/internal/models/indicator_config_test.go` - **NEW** 12 test cases covering all validation functions
 
----
-
-## Pending Items
-
-### High Priority
-
-- [ ] **Fix Indicator Configuration Affectation** - Main blocker for full system functionality
-- [ ] Test full end-to-end indicator config workflow
-- [ ] Verify config inheritance (job overrides connector)
-- [ ] Performance testing with all 29 indicators enabled
-- [ ] Add connector statistics page showing data volume, job count, last run times
-
-### Medium Priority
-
-- [ ] Add more comprehensive error handling in API
-- [ ] Add validation for indicator parameters (min/max values)
-- [ ] Add unit tests for config merge logic
-- [ ] Implement job dependency management (run job A before job B)
-- [ ] Add alerting system for failed jobs or rate limit violations
-- [ ] Implement data retention policies (auto-cleanup old candles)
-
-### Low Priority
-
-- [ ] API documentation (Swagger/OpenAPI)
-- [ ] Add more popular trading pairs to JobWizard
-- [ ] Implement connector health monitoring dashboard
-- [ ] Add data quality metrics (missing candles, data gaps)
-- [ ] Support for custom timeframes beyond predefined ones
-- [ ] WebSocket support for real-time data streaming
-- [ ] Multi-user support with authentication/authorization
-
-### Future Enhancements
-
-- [ ] Machine learning model training integration
-- [ ] Strategy backtesting framework
-- [ ] Alert system for indicator threshold breaches
-- [ ] Correlation analysis between different pairs
-- [ ] Market regime detection
-- [ ] Custom indicator formula builder
+### Job Dependency Management (P2.8): ✅ DONE
+- `/internal/models/job.go` - Added DependsOn field, DependencyStatus type
+- `/internal/repository/job_repository.go` - Added SetDependencies(), FindByIDs(), GetDependencyStatus(), CheckCircularDependency(), FindJobsDependingOn()
+- `/internal/api/handlers/job_handler.go` - Added dependency support to Create/Update, GetJobDependencies(), SetJobDependencies(), GetJobDependents()
+- `/internal/service/job_executor.go` - Added dependency checking before job execution
+- `/cmd/api/main.go` - Added dependency routes
 
 ---
 
-## Known Issues
+## Progress Tracking
 
-### Fixed Issues (v1.0.5b)
-- ✅ OKX exchange "not yet supported" error - Fixed by using dynamic adapter
-- ✅ BingX exchange "not yet supported" error - Fixed by using dynamic adapter
-- ✅ CCXTService hardcoded to only bybit/binance - Now uses generic adapter
-- ✅ Historical data not being collected - Implemented pagination
-- ✅ lightweight-charts v5 API incompatibility - Fixed `addSeries()` usage
+| Priority | Total | Done | In Progress | Remaining |
+|----------|-------|------|-------------|-----------|
+| P0 | 4 | 4 | 0 | 0 |
+| P1 | 4 | 4 | 0 | 0 |
+| P2 | 10 | 10 | 0 | 0 |
+| P3 | 7 | 0 | 0 | 7 |
 
-### Fixed Issues (Previous Sessions)
-- ✅ KuCoin exchange "not yet supported" error
-- ✅ Exchange validation rejecting all exchanges except Binance
-- ✅ MongoDB disk space issues causing crashes
-- ✅ Type conversion errors in CCXT API calls (int → int64)
-
-### Active Issues
-- ⚠️ Indicator configurations not being enforced during calculation
-- ⚠️ No validation for conflicting job schedules on same connector
-
----
-
-## Testing Checklist
-
-### Exchange Integration
-- [x] Dynamic exchange discovery (111 exchanges)
-- [x] Binance connector creation and data fetching
-- [x] Multiple exchange support verification
-- [x] Exchange availability testing endpoint
-- [x] OKX and BingX support verified
-- [ ] Sandbox mode testing for each exchange
-- [ ] Rate limit enforcement testing
-
-### Historical Data Collection
-- [x] First execution fetches all historical data
-- [x] Pagination working correctly
-- [x] Subsequent executions fetch only new data
-- [ ] Very large dataset collection (100k+ candles)
-- [ ] Error recovery during pagination
-
-### Wizard Workflows
-- [x] Connector wizard 2-step flow
-- [x] Job wizard 4-step flow
-- [x] Batch job creation (multiple pairs × timeframes)
-- [x] Dynamic exchange list in wizards
-- [ ] Wizard validation edge cases
-- [ ] Indicator configuration in wizards
-
-### Data Visualization
-- [x] CandlestickChart rendering
-- [x] Volume histogram display
-- [x] Indicator overlays (SMA, EMA, BB)
-- [x] Separate indicator panes (RSI, MACD)
-- [ ] Large dataset performance (10k+ candles)
-
-### Data Export
-- [x] CSV export format
-- [x] JSON export format
-- [x] ML-optimized export format
-- [ ] Large dataset export (10k+ candles)
-- [ ] Export with all indicators enabled
-
-### Job Management
-- [x] Job search and filtering
-- [x] Job details view with charts
-- [x] Manual job execution
-- [ ] Job pause/resume functionality
-- [ ] Job error recovery
-
----
-
-## Architecture Improvements Needed
-
-### Code Quality
-- [ ] Add comprehensive unit tests for services
-- [ ] Add integration tests for API endpoints
-- [ ] Implement proper error types instead of string errors
-- [ ] Add request/response DTOs for all endpoints
-
-### Performance
-- [x] Implemented caching for exchange metadata
-- [ ] Optimize indicator calculations for large datasets
-- [ ] Add database indexes for common queries
-- [ ] Implement connection pooling optimization
-
-### Observability
-- [x] Added comprehensive logging for CCXT operations
-- [ ] Implement metrics collection (Prometheus)
-- [ ] Add distributed tracing
-- [ ] Create health check dashboard
-
-### Security
-- [ ] Add API authentication
-- [ ] Implement rate limiting per user/IP
-- [ ] Add input sanitization
-- [ ] Secure sensitive configuration (API keys)
-
----
-
-## Documentation Needs
-
-- [ ] API documentation with examples
-- [ ] Architecture decision records (ADRs)
-- [ ] Deployment guide
-- [ ] Troubleshooting guide
-- [ ] Indicator calculation formulas documentation
-- [ ] Contributing guidelines
-
----
-
-**Last Updated:** 2026-01-21
-
-**Current Version:** v1.0.5b
-
-**Current Branch:** main
-
-**Next Session Priorities:**
-1. Fix indicator configuration affectation issue
-2. Test historical data collection with various exchanges
-3. Add connector statistics/monitoring dashboard
-4. Performance testing with large datasets
+**Current Focus:** All P2 Tasks Complete - Ready for P3

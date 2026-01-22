@@ -7,19 +7,54 @@ import (
 )
 
 // Service handles indicator calculations for candles
-type Service struct{}
+type Service struct {
+	config *models.IndicatorConfig
+}
 
-// NewService creates a new indicator service
+// NewService creates a new indicator service with default config
 func NewService() *Service {
-	return &Service{}
+	return &Service{
+		config: models.DefaultIndicatorConfig(),
+	}
+}
+
+// NewServiceWithConfig creates a new indicator service with a specific config
+func NewServiceWithConfig(config *models.IndicatorConfig) *Service {
+	if config == nil {
+		config = models.DefaultIndicatorConfig()
+	}
+	return &Service{
+		config: config,
+	}
+}
+
+// SetConfig updates the indicator configuration
+func (s *Service) SetConfig(config *models.IndicatorConfig) {
+	if config != nil {
+		s.config = config
+	}
+}
+
+// GetConfig returns the current indicator configuration
+func (s *Service) GetConfig() *models.IndicatorConfig {
+	return s.config
 }
 
 // CalculateAll calculates ALL indicators and updates the candles
 // Note: Candles should be ordered with newest first (index 0)
 // The function handles reversal automatically
 func (s *Service) CalculateAll(candles []models.Candle) ([]models.Candle, error) {
+	return s.CalculateWithConfig(candles, s.config)
+}
+
+// CalculateWithConfig calculates indicators using a specific configuration
+func (s *Service) CalculateWithConfig(candles []models.Candle, config *models.IndicatorConfig) ([]models.Candle, error) {
 	if len(candles) == 0 {
 		return candles, nil
+	}
+
+	if config == nil {
+		config = models.DefaultIndicatorConfig()
 	}
 
 	// Reverse candles for calculation (indicators expect oldest first)
@@ -28,7 +63,7 @@ func (s *Service) CalculateAll(candles []models.Candle) ([]models.Candle, error)
 		reversed[i] = candles[len(candles)-1-i]
 	}
 
-	log.Printf("[INDICATORS] Calculating all indicators for %d candles", len(reversed))
+	log.Printf("[INDICATORS] Calculating indicators for %d candles using config '%s'", len(reversed), config.Name)
 
 	// Initialize indicators map for each candle
 	for i := range reversed {
@@ -37,353 +72,435 @@ func (s *Service) CalculateAll(candles []models.Candle) ([]models.Candle, error)
 		}
 	}
 
-	// Calculate all indicators with default periods
-	s.calculateTrendIndicators(reversed)
-	s.calculateMomentumIndicators(reversed)
-	s.calculateVolatilityIndicators(reversed)
-	s.calculateVolumeIndicators(reversed)
+	// Calculate indicators based on config
+	if config.EnableTrend {
+		s.calculateTrendIndicatorsWithConfig(reversed, config.Trend)
+	}
+	if config.EnableMomentum {
+		s.calculateMomentumIndicatorsWithConfig(reversed, config.Momentum)
+	}
+	if config.EnableVolatility {
+		s.calculateVolatilityIndicatorsWithConfig(reversed, config.Volatility)
+	}
+	if config.EnableVolume {
+		s.calculateVolumeIndicatorsWithConfig(reversed, config.Volume)
+	}
 
 	// Reverse back to newest-first order
 	for i := range candles {
 		candles[i] = reversed[len(reversed)-1-i]
 	}
 
-	log.Printf("[INDICATORS] All indicator calculations complete")
+	log.Printf("[INDICATORS] Indicator calculations complete")
 	return candles, nil
 }
 
-// calculateTrendIndicators calculates all trend-following indicators
+// calculateTrendIndicators calculates all trend-following indicators with default config
 func (s *Service) calculateTrendIndicators(candles []models.Candle) {
-	// SMA (Simple Moving Average) - periods: 20, 50, 200
-	for _, period := range []int{20, 50, 200} {
-		sma := CalculateSMA(candles, period, "close")
-		for i, val := range sma {
-			if isValidValue(val) {
-				switch period {
-				case 20:
-					candles[i].Indicators.SMA20 = &val
-				case 50:
-					candles[i].Indicators.SMA50 = &val
-				case 200:
-					candles[i].Indicators.SMA200 = &val
-				}
-			}
-		}
-	}
-	log.Printf("[INDICATORS] Calculated SMA(20, 50, 200)")
-
-	// EMA (Exponential Moving Average) - periods: 12, 26, 50
-	for _, period := range []int{12, 26, 50} {
-		ema := CalculateEMA(candles, period, "close")
-		for i, val := range ema {
-			if isValidValue(val) {
-				switch period {
-				case 12:
-					candles[i].Indicators.EMA12 = &val
-				case 26:
-					candles[i].Indicators.EMA26 = &val
-				case 50:
-					candles[i].Indicators.EMA50 = &val
-				}
-			}
-		}
-	}
-	log.Printf("[INDICATORS] Calculated EMA(12, 26, 50)")
-
-	// DEMA (Double Exponential Moving Average) - period: 20
-	dema := CalculateDEMA(candles, 20, "close")
-	for i, val := range dema {
-		if isValidValue(val) {
-			candles[i].Indicators.DEMA = &val
-		}
-	}
-	log.Printf("[INDICATORS] Calculated DEMA(20)")
-
-	// TEMA (Triple Exponential Moving Average) - period: 20
-	tema := CalculateTEMA(candles, 20, "close")
-	for i, val := range tema {
-		if isValidValue(val) {
-			candles[i].Indicators.TEMA = &val
-		}
-	}
-	log.Printf("[INDICATORS] Calculated TEMA(20)")
-
-	// WMA (Weighted Moving Average) - period: 20
-	wma := CalculateWMA(candles, 20, "close")
-	for i, val := range wma {
-		if isValidValue(val) {
-			candles[i].Indicators.WMA = &val
-		}
-	}
-	log.Printf("[INDICATORS] Calculated WMA(20)")
-
-	// HMA (Hull Moving Average) - period: 9
-	hma := CalculateHMA(candles, 9, "close")
-	for i, val := range hma {
-		if isValidValue(val) {
-			candles[i].Indicators.HMA = &val
-		}
-	}
-	log.Printf("[INDICATORS] Calculated HMA(9)")
-
-	// VWMA (Volume Weighted Moving Average) - period: 20
-	vwma := CalculateVWMA(candles, 20, "close")
-	for i, val := range vwma {
-		if isValidValue(val) {
-			candles[i].Indicators.VWMA = &val
-		}
-	}
-	log.Printf("[INDICATORS] Calculated VWMA(20)")
-
-	// Ichimoku Cloud - tenkan:9, kijun:26, senkouB:52, displacement:26
-	ichimoku := CalculateIchimoku(candles, 9, 26, 52, 26, 26)
-	for i := range candles {
-		if isValidValue(ichimoku.Tenkan[i]) {
-			candles[i].Indicators.IchimokuTenkan = &ichimoku.Tenkan[i]
-		}
-		if isValidValue(ichimoku.Kijun[i]) {
-			candles[i].Indicators.IchimokuKijun = &ichimoku.Kijun[i]
-		}
-		if isValidValue(ichimoku.SenkouA[i]) {
-			candles[i].Indicators.IchimokuSenkouA = &ichimoku.SenkouA[i]
-		}
-		if isValidValue(ichimoku.SenkouB[i]) {
-			candles[i].Indicators.IchimokuSenkouB = &ichimoku.SenkouB[i]
-		}
-		if isValidValue(ichimoku.Chikou[i]) {
-			candles[i].Indicators.IchimokuChikou = &ichimoku.Chikou[i]
-		}
-	}
-	log.Printf("[INDICATORS] Calculated Ichimoku(9, 26, 52)")
-
-	// ADX/DMI - period: 14
-	adx := CalculateADX(candles, 14)
-	for i := range candles {
-		if isValidValue(adx.ADX[i]) {
-			candles[i].Indicators.ADX = &adx.ADX[i]
-		}
-		if isValidValue(adx.PlusDI[i]) {
-			candles[i].Indicators.PlusDI = &adx.PlusDI[i]
-		}
-		if isValidValue(adx.MinusDI[i]) {
-			candles[i].Indicators.MinusDI = &adx.MinusDI[i]
-		}
-	}
-	log.Printf("[INDICATORS] Calculated ADX(14)")
-
-	// SuperTrend - period: 10, multiplier: 3.0
-	supertrend := CalculateSuperTrend(candles, 10, 3.0)
-	for i := range candles {
-		if isValidValue(supertrend.SuperTrend[i]) {
-			candles[i].Indicators.SuperTrend = &supertrend.SuperTrend[i]
-		}
-		if supertrend.Signal[i] != 0 {
-			candles[i].Indicators.SuperTrendSignal = &supertrend.Signal[i]
-		}
-	}
-	log.Printf("[INDICATORS] Calculated SuperTrend(10, 3.0)")
+	s.calculateTrendIndicatorsWithConfig(candles, models.DefaultTrendConfig())
 }
 
-// calculateMomentumIndicators calculates all momentum/oscillator indicators
+// calculateTrendIndicatorsWithConfig calculates trend indicators using config
+func (s *Service) calculateTrendIndicatorsWithConfig(candles []models.Candle, cfg models.TrendConfig) {
+	// SMA (Simple Moving Average)
+	if cfg.SMAEnabled && len(cfg.SMAPeriods) > 0 {
+		for _, period := range cfg.SMAPeriods {
+			sma := CalculateSMA(candles, period, "close")
+			for i, val := range sma {
+				if isValidValue(val) {
+					switch period {
+					case 20:
+						candles[i].Indicators.SMA20 = &val
+					case 50:
+						candles[i].Indicators.SMA50 = &val
+					case 200:
+						candles[i].Indicators.SMA200 = &val
+					}
+				}
+			}
+		}
+		log.Printf("[INDICATORS] Calculated SMA(%v)", cfg.SMAPeriods)
+	}
+
+	// EMA (Exponential Moving Average)
+	if cfg.EMAEnabled && len(cfg.EMAPeriods) > 0 {
+		for _, period := range cfg.EMAPeriods {
+			ema := CalculateEMA(candles, period, "close")
+			for i, val := range ema {
+				if isValidValue(val) {
+					switch period {
+					case 12:
+						candles[i].Indicators.EMA12 = &val
+					case 26:
+						candles[i].Indicators.EMA26 = &val
+					case 50:
+						candles[i].Indicators.EMA50 = &val
+					}
+				}
+			}
+		}
+		log.Printf("[INDICATORS] Calculated EMA(%v)", cfg.EMAPeriods)
+	}
+
+	// DEMA (Double Exponential Moving Average)
+	if cfg.DEMAEnabled && cfg.DEMAPeriod > 0 {
+		dema := CalculateDEMA(candles, cfg.DEMAPeriod, "close")
+		for i, val := range dema {
+			if isValidValue(val) {
+				candles[i].Indicators.DEMA = &val
+			}
+		}
+		log.Printf("[INDICATORS] Calculated DEMA(%d)", cfg.DEMAPeriod)
+	}
+
+	// TEMA (Triple Exponential Moving Average)
+	if cfg.TEMAEnabled && cfg.TEMAPeriod > 0 {
+		tema := CalculateTEMA(candles, cfg.TEMAPeriod, "close")
+		for i, val := range tema {
+			if isValidValue(val) {
+				candles[i].Indicators.TEMA = &val
+			}
+		}
+		log.Printf("[INDICATORS] Calculated TEMA(%d)", cfg.TEMAPeriod)
+	}
+
+	// WMA (Weighted Moving Average)
+	if cfg.WMAEnabled && cfg.WMAPeriod > 0 {
+		wma := CalculateWMA(candles, cfg.WMAPeriod, "close")
+		for i, val := range wma {
+			if isValidValue(val) {
+				candles[i].Indicators.WMA = &val
+			}
+		}
+		log.Printf("[INDICATORS] Calculated WMA(%d)", cfg.WMAPeriod)
+	}
+
+	// HMA (Hull Moving Average)
+	if cfg.HMAEnabled && cfg.HMAPeriod > 0 {
+		hma := CalculateHMA(candles, cfg.HMAPeriod, "close")
+		for i, val := range hma {
+			if isValidValue(val) {
+				candles[i].Indicators.HMA = &val
+			}
+		}
+		log.Printf("[INDICATORS] Calculated HMA(%d)", cfg.HMAPeriod)
+	}
+
+	// VWMA (Volume Weighted Moving Average)
+	if cfg.VWMAEnabled && cfg.VWMAPeriod > 0 {
+		vwma := CalculateVWMA(candles, cfg.VWMAPeriod, "close")
+		for i, val := range vwma {
+			if isValidValue(val) {
+				candles[i].Indicators.VWMA = &val
+			}
+		}
+		log.Printf("[INDICATORS] Calculated VWMA(%d)", cfg.VWMAPeriod)
+	}
+
+	// Ichimoku Cloud
+	if cfg.IchimokuEnabled {
+		ichimoku := CalculateIchimoku(candles, cfg.IchimokuTenkan, cfg.IchimokuKijun, cfg.IchimokuSenkouB, cfg.IchimokuDisplacement, cfg.IchimokuDisplacement)
+		for i := range candles {
+			if isValidValue(ichimoku.Tenkan[i]) {
+				candles[i].Indicators.IchimokuTenkan = &ichimoku.Tenkan[i]
+			}
+			if isValidValue(ichimoku.Kijun[i]) {
+				candles[i].Indicators.IchimokuKijun = &ichimoku.Kijun[i]
+			}
+			if isValidValue(ichimoku.SenkouA[i]) {
+				candles[i].Indicators.IchimokuSenkouA = &ichimoku.SenkouA[i]
+			}
+			if isValidValue(ichimoku.SenkouB[i]) {
+				candles[i].Indicators.IchimokuSenkouB = &ichimoku.SenkouB[i]
+			}
+			if isValidValue(ichimoku.Chikou[i]) {
+				candles[i].Indicators.IchimokuChikou = &ichimoku.Chikou[i]
+			}
+		}
+		log.Printf("[INDICATORS] Calculated Ichimoku(%d, %d, %d)", cfg.IchimokuTenkan, cfg.IchimokuKijun, cfg.IchimokuSenkouB)
+	}
+
+	// ADX/DMI
+	if cfg.ADXEnabled && cfg.ADXPeriod > 0 {
+		adx := CalculateADX(candles, cfg.ADXPeriod)
+		for i := range candles {
+			if isValidValue(adx.ADX[i]) {
+				candles[i].Indicators.ADX = &adx.ADX[i]
+			}
+			if isValidValue(adx.PlusDI[i]) {
+				candles[i].Indicators.PlusDI = &adx.PlusDI[i]
+			}
+			if isValidValue(adx.MinusDI[i]) {
+				candles[i].Indicators.MinusDI = &adx.MinusDI[i]
+			}
+		}
+		log.Printf("[INDICATORS] Calculated ADX(%d)", cfg.ADXPeriod)
+	}
+
+	// SuperTrend
+	if cfg.SuperTrendEnabled && cfg.SuperTrendPeriod > 0 {
+		supertrend := CalculateSuperTrend(candles, cfg.SuperTrendPeriod, cfg.SuperTrendMultiplier)
+		for i := range candles {
+			if isValidValue(supertrend.SuperTrend[i]) {
+				candles[i].Indicators.SuperTrend = &supertrend.SuperTrend[i]
+			}
+			if supertrend.Signal[i] != 0 {
+				candles[i].Indicators.SuperTrendSignal = &supertrend.Signal[i]
+			}
+		}
+		log.Printf("[INDICATORS] Calculated SuperTrend(%d, %.1f)", cfg.SuperTrendPeriod, cfg.SuperTrendMultiplier)
+	}
+}
+
+// calculateMomentumIndicators calculates all momentum/oscillator indicators with default config
 func (s *Service) calculateMomentumIndicators(candles []models.Candle) {
-	// RSI (Relative Strength Index) - periods: 6, 14, 24
-	for _, period := range []int{6, 14, 24} {
-		rsi := CalculateRSI(candles, period, "close")
-		for i, val := range rsi {
-			if isValidValue(val) {
-				switch period {
-				case 6:
-					candles[i].Indicators.RSI6 = &val
-				case 14:
-					candles[i].Indicators.RSI14 = &val
-				case 24:
-					candles[i].Indicators.RSI24 = &val
+	s.calculateMomentumIndicatorsWithConfig(candles, models.DefaultMomentumConfig())
+}
+
+// calculateMomentumIndicatorsWithConfig calculates momentum indicators using config
+func (s *Service) calculateMomentumIndicatorsWithConfig(candles []models.Candle, cfg models.MomentumConfig) {
+	// RSI (Relative Strength Index)
+	if cfg.RSIEnabled && len(cfg.RSIPeriods) > 0 {
+		for _, period := range cfg.RSIPeriods {
+			rsi := CalculateRSI(candles, period, "close")
+			for i, val := range rsi {
+				if isValidValue(val) {
+					switch period {
+					case 6:
+						candles[i].Indicators.RSI6 = &val
+					case 14:
+						candles[i].Indicators.RSI14 = &val
+					case 24:
+						candles[i].Indicators.RSI24 = &val
+					}
 				}
 			}
 		}
+		log.Printf("[INDICATORS] Calculated RSI(%v)", cfg.RSIPeriods)
 	}
-	log.Printf("[INDICATORS] Calculated RSI(6, 14, 24)")
 
-	// Stochastic Oscillator - K:14, D:3, smooth:3
-	stoch := CalculateStochastic(candles, 14, 3, 3)
-	for i := range candles {
-		if isValidValue(stoch.K[i]) {
-			candles[i].Indicators.StochK = &stoch.K[i]
+	// Stochastic Oscillator
+	if cfg.StochEnabled {
+		stoch := CalculateStochastic(candles, cfg.StochK, cfg.StochD, cfg.StochSmooth)
+		for i := range candles {
+			if isValidValue(stoch.K[i]) {
+				candles[i].Indicators.StochK = &stoch.K[i]
+			}
+			if isValidValue(stoch.D[i]) {
+				candles[i].Indicators.StochD = &stoch.D[i]
+			}
 		}
-		if isValidValue(stoch.D[i]) {
-			candles[i].Indicators.StochD = &stoch.D[i]
-		}
+		log.Printf("[INDICATORS] Calculated Stochastic(%d, %d, %d)", cfg.StochK, cfg.StochD, cfg.StochSmooth)
 	}
-	log.Printf("[INDICATORS] Calculated Stochastic(14, 3, 3)")
 
-	// MACD - fast:12, slow:26, signal:9
-	macd := CalculateMACD(candles, 12, 26, 9, "close")
-	for i := range candles {
-		if isValidValue(macd.MACD[i]) {
-			candles[i].Indicators.MACD = &macd.MACD[i]
+	// MACD
+	if cfg.MACDEnabled {
+		macd := CalculateMACD(candles, cfg.MACDFast, cfg.MACDSlow, cfg.MACDSignal, "close")
+		for i := range candles {
+			if isValidValue(macd.MACD[i]) {
+				candles[i].Indicators.MACD = &macd.MACD[i]
+			}
+			if isValidValue(macd.Signal[i]) {
+				candles[i].Indicators.MACDSignal = &macd.Signal[i]
+			}
+			if isValidValue(macd.Histogram[i]) {
+				candles[i].Indicators.MACDHist = &macd.Histogram[i]
+			}
 		}
-		if isValidValue(macd.Signal[i]) {
-			candles[i].Indicators.MACDSignal = &macd.Signal[i]
-		}
-		if isValidValue(macd.Histogram[i]) {
-			candles[i].Indicators.MACDHist = &macd.Histogram[i]
-		}
+		log.Printf("[INDICATORS] Calculated MACD(%d, %d, %d)", cfg.MACDFast, cfg.MACDSlow, cfg.MACDSignal)
 	}
-	log.Printf("[INDICATORS] Calculated MACD(12, 26, 9)")
 
-	// ROC (Rate of Change) - period: 12
-	roc := CalculateROC(candles, 12, "close")
-	for i, val := range roc {
-		if isValidValue(val) {
-			candles[i].Indicators.ROC = &val
+	// ROC (Rate of Change)
+	if cfg.ROCEnabled && cfg.ROCPeriod > 0 {
+		roc := CalculateROC(candles, cfg.ROCPeriod, "close")
+		for i, val := range roc {
+			if isValidValue(val) {
+				candles[i].Indicators.ROC = &val
+			}
 		}
+		log.Printf("[INDICATORS] Calculated ROC(%d)", cfg.ROCPeriod)
 	}
-	log.Printf("[INDICATORS] Calculated ROC(12)")
 
-	// CCI (Commodity Channel Index) - period: 20
-	cci := CalculateCCI(candles, 20)
-	for i, val := range cci {
-		if isValidValue(val) {
-			candles[i].Indicators.CCI = &val
+	// CCI (Commodity Channel Index)
+	if cfg.CCIEnabled && cfg.CCIPeriod > 0 {
+		cci := CalculateCCI(candles, cfg.CCIPeriod)
+		for i, val := range cci {
+			if isValidValue(val) {
+				candles[i].Indicators.CCI = &val
+			}
 		}
+		log.Printf("[INDICATORS] Calculated CCI(%d)", cfg.CCIPeriod)
 	}
-	log.Printf("[INDICATORS] Calculated CCI(20)")
 
-	// Williams %R - period: 14
-	williamsR := CalculateWilliamsR(candles, 14)
-	for i, val := range williamsR {
-		if isValidValue(val) {
-			candles[i].Indicators.WilliamsR = &val
+	// Williams %R
+	if cfg.WilliamsREnabled && cfg.WilliamsRPeriod > 0 {
+		williamsR := CalculateWilliamsR(candles, cfg.WilliamsRPeriod)
+		for i, val := range williamsR {
+			if isValidValue(val) {
+				candles[i].Indicators.WilliamsR = &val
+			}
 		}
+		log.Printf("[INDICATORS] Calculated Williams %%R(%d)", cfg.WilliamsRPeriod)
 	}
-	log.Printf("[INDICATORS] Calculated Williams %%R(14)")
 
-	// Momentum - period: 10
-	momentum := CalculateMomentum(candles, 10, "close")
-	for i, val := range momentum {
-		if isValidValue(val) {
-			candles[i].Indicators.Momentum = &val
+	// Momentum
+	if cfg.MomentumEnabled && cfg.MomentumPeriod > 0 {
+		momentum := CalculateMomentum(candles, cfg.MomentumPeriod, "close")
+		for i, val := range momentum {
+			if isValidValue(val) {
+				candles[i].Indicators.Momentum = &val
+			}
 		}
+		log.Printf("[INDICATORS] Calculated Momentum(%d)", cfg.MomentumPeriod)
 	}
-	log.Printf("[INDICATORS] Calculated Momentum(10)")
 }
 
-// calculateVolatilityIndicators calculates all volatility indicators
+// calculateVolatilityIndicators calculates all volatility indicators with default config
 func (s *Service) calculateVolatilityIndicators(candles []models.Candle) {
-	// Bollinger Bands - period: 20, stdDev: 2.0
-	bb := CalculateBollingerBands(candles, 20, 2.0, "close")
-	for i := range candles {
-		if isValidValue(bb.Upper[i]) {
-			candles[i].Indicators.BollingerUpper = &bb.Upper[i]
-		}
-		if isValidValue(bb.Middle[i]) {
-			candles[i].Indicators.BollingerMiddle = &bb.Middle[i]
-		}
-		if isValidValue(bb.Lower[i]) {
-			candles[i].Indicators.BollingerLower = &bb.Lower[i]
-		}
-		if isValidValue(bb.Bandwidth[i]) {
-			candles[i].Indicators.BollingerBandwidth = &bb.Bandwidth[i]
-		}
-		if isValidValue(bb.PercentB[i]) {
-			candles[i].Indicators.BollingerPercentB = &bb.PercentB[i]
-		}
-	}
-	log.Printf("[INDICATORS] Calculated Bollinger Bands(20, 2.0)")
-
-	// ATR (Average True Range) - period: 14
-	atr := CalculateATR(candles, 14)
-	for i, val := range atr {
-		if isValidValue(val) {
-			candles[i].Indicators.ATR = &val
-		}
-	}
-	log.Printf("[INDICATORS] Calculated ATR(14)")
-
-	// Keltner Channels - period: 20, atrPeriod: 10, multiplier: 2.0
-	keltner := CalculateKeltner(candles, 20, 10, 2.0)
-	for i := range candles {
-		if isValidValue(keltner.Upper[i]) {
-			candles[i].Indicators.KeltnerUpper = &keltner.Upper[i]
-		}
-		if isValidValue(keltner.Middle[i]) {
-			candles[i].Indicators.KeltnerMiddle = &keltner.Middle[i]
-		}
-		if isValidValue(keltner.Lower[i]) {
-			candles[i].Indicators.KeltnerLower = &keltner.Lower[i]
-		}
-	}
-	log.Printf("[INDICATORS] Calculated Keltner Channels(20, 10, 2.0)")
-
-	// Donchian Channels - period: 20
-	donchian := CalculateDonchian(candles, 20)
-	for i := range candles {
-		if isValidValue(donchian.Upper[i]) {
-			candles[i].Indicators.DonchianUpper = &donchian.Upper[i]
-		}
-		if isValidValue(donchian.Middle[i]) {
-			candles[i].Indicators.DonchianMiddle = &donchian.Middle[i]
-		}
-		if isValidValue(donchian.Lower[i]) {
-			candles[i].Indicators.DonchianLower = &donchian.Lower[i]
-		}
-	}
-	log.Printf("[INDICATORS] Calculated Donchian Channels(20)")
-
-	// Standard Deviation - period: 20
-	stddev := CalculateStdDev(candles, 20, "close")
-	for i, val := range stddev {
-		if isValidValue(val) {
-			candles[i].Indicators.StdDev = &val
-		}
-	}
-	log.Printf("[INDICATORS] Calculated StdDev(20)")
+	s.calculateVolatilityIndicatorsWithConfig(candles, models.DefaultVolatilityConfig())
 }
 
-// calculateVolumeIndicators calculates all volume-based indicators
-func (s *Service) calculateVolumeIndicators(candles []models.Candle) {
-	// OBV (On-Balance Volume)
-	obv := CalculateOBV(candles)
-	for i, val := range obv {
-		if isValidValue(val) {
-			candles[i].Indicators.OBV = &val
+// calculateVolatilityIndicatorsWithConfig calculates volatility indicators using config
+func (s *Service) calculateVolatilityIndicatorsWithConfig(candles []models.Candle, cfg models.VolatilityConfig) {
+	// Bollinger Bands
+	if cfg.BollingerEnabled && cfg.BollingerPeriod > 0 {
+		bb := CalculateBollingerBands(candles, cfg.BollingerPeriod, cfg.BollingerStdDev, "close")
+		for i := range candles {
+			if isValidValue(bb.Upper[i]) {
+				candles[i].Indicators.BollingerUpper = &bb.Upper[i]
+			}
+			if isValidValue(bb.Middle[i]) {
+				candles[i].Indicators.BollingerMiddle = &bb.Middle[i]
+			}
+			if isValidValue(bb.Lower[i]) {
+				candles[i].Indicators.BollingerLower = &bb.Lower[i]
+			}
+			if isValidValue(bb.Bandwidth[i]) {
+				candles[i].Indicators.BollingerBandwidth = &bb.Bandwidth[i]
+			}
+			if isValidValue(bb.PercentB[i]) {
+				candles[i].Indicators.BollingerPercentB = &bb.PercentB[i]
+			}
 		}
+		log.Printf("[INDICATORS] Calculated Bollinger Bands(%d, %.1f)", cfg.BollingerPeriod, cfg.BollingerStdDev)
 	}
-	log.Printf("[INDICATORS] Calculated OBV")
+
+	// ATR (Average True Range)
+	if cfg.ATREnabled && cfg.ATRPeriod > 0 {
+		atr := CalculateATR(candles, cfg.ATRPeriod)
+		for i, val := range atr {
+			if isValidValue(val) {
+				candles[i].Indicators.ATR = &val
+			}
+		}
+		log.Printf("[INDICATORS] Calculated ATR(%d)", cfg.ATRPeriod)
+	}
+
+	// Keltner Channels
+	if cfg.KeltnerEnabled && cfg.KeltnerPeriod > 0 {
+		keltner := CalculateKeltner(candles, cfg.KeltnerPeriod, cfg.KeltnerATRPeriod, cfg.KeltnerMultiplier)
+		for i := range candles {
+			if isValidValue(keltner.Upper[i]) {
+				candles[i].Indicators.KeltnerUpper = &keltner.Upper[i]
+			}
+			if isValidValue(keltner.Middle[i]) {
+				candles[i].Indicators.KeltnerMiddle = &keltner.Middle[i]
+			}
+			if isValidValue(keltner.Lower[i]) {
+				candles[i].Indicators.KeltnerLower = &keltner.Lower[i]
+			}
+		}
+		log.Printf("[INDICATORS] Calculated Keltner Channels(%d, %d, %.1f)", cfg.KeltnerPeriod, cfg.KeltnerATRPeriod, cfg.KeltnerMultiplier)
+	}
+
+	// Donchian Channels
+	if cfg.DonchianEnabled && cfg.DonchianPeriod > 0 {
+		donchian := CalculateDonchian(candles, cfg.DonchianPeriod)
+		for i := range candles {
+			if isValidValue(donchian.Upper[i]) {
+				candles[i].Indicators.DonchianUpper = &donchian.Upper[i]
+			}
+			if isValidValue(donchian.Middle[i]) {
+				candles[i].Indicators.DonchianMiddle = &donchian.Middle[i]
+			}
+			if isValidValue(donchian.Lower[i]) {
+				candles[i].Indicators.DonchianLower = &donchian.Lower[i]
+			}
+		}
+		log.Printf("[INDICATORS] Calculated Donchian Channels(%d)", cfg.DonchianPeriod)
+	}
+
+	// Standard Deviation
+	if cfg.StdDevEnabled && cfg.StdDevPeriod > 0 {
+		stddev := CalculateStdDev(candles, cfg.StdDevPeriod, "close")
+		for i, val := range stddev {
+			if isValidValue(val) {
+				candles[i].Indicators.StdDev = &val
+			}
+		}
+		log.Printf("[INDICATORS] Calculated StdDev(%d)", cfg.StdDevPeriod)
+	}
+}
+
+// calculateVolumeIndicators calculates all volume-based indicators with default config
+func (s *Service) calculateVolumeIndicators(candles []models.Candle) {
+	s.calculateVolumeIndicatorsWithConfig(candles, models.DefaultVolumeConfig())
+}
+
+// calculateVolumeIndicatorsWithConfig calculates volume indicators using config
+func (s *Service) calculateVolumeIndicatorsWithConfig(candles []models.Candle, cfg models.VolumeConfig) {
+	// OBV (On-Balance Volume)
+	if cfg.OBVEnabled {
+		obv := CalculateOBV(candles)
+		for i, val := range obv {
+			if isValidValue(val) {
+				candles[i].Indicators.OBV = &val
+			}
+		}
+		log.Printf("[INDICATORS] Calculated OBV")
+	}
 
 	// VWAP (Volume Weighted Average Price)
-	vwap := CalculateVWAP(candles)
-	for i, val := range vwap {
-		if isValidValue(val) {
-			candles[i].Indicators.VWAP = &val
+	if cfg.VWAPEnabled {
+		vwap := CalculateVWAP(candles)
+		for i, val := range vwap {
+			if isValidValue(val) {
+				candles[i].Indicators.VWAP = &val
+			}
 		}
+		log.Printf("[INDICATORS] Calculated VWAP")
 	}
-	log.Printf("[INDICATORS] Calculated VWAP")
 
-	// MFI (Money Flow Index) - period: 14
-	mfi := CalculateMFI(candles, 14)
-	for i, val := range mfi {
-		if isValidValue(val) {
-			candles[i].Indicators.MFI = &val
+	// MFI (Money Flow Index)
+	if cfg.MFIEnabled && cfg.MFIPeriod > 0 {
+		mfi := CalculateMFI(candles, cfg.MFIPeriod)
+		for i, val := range mfi {
+			if isValidValue(val) {
+				candles[i].Indicators.MFI = &val
+			}
 		}
+		log.Printf("[INDICATORS] Calculated MFI(%d)", cfg.MFIPeriod)
 	}
-	log.Printf("[INDICATORS] Calculated MFI(14)")
 
-	// CMF (Chaikin Money Flow) - period: 20
-	cmf := CalculateCMF(candles, 20)
-	for i, val := range cmf {
-		if isValidValue(val) {
-			candles[i].Indicators.CMF = &val
+	// CMF (Chaikin Money Flow)
+	if cfg.CMFEnabled && cfg.CMFPeriod > 0 {
+		cmf := CalculateCMF(candles, cfg.CMFPeriod)
+		for i, val := range cmf {
+			if isValidValue(val) {
+				candles[i].Indicators.CMF = &val
+			}
 		}
+		log.Printf("[INDICATORS] Calculated CMF(%d)", cfg.CMFPeriod)
 	}
-	log.Printf("[INDICATORS] Calculated CMF(20)")
 
-	// Volume SMA - period: 20
-	volumeSMA := CalculateVolumeSMA(candles, 20)
-	for i, val := range volumeSMA {
-		if isValidValue(val) {
-			candles[i].Indicators.VolumeSMA = &val
+	// Volume SMA
+	if cfg.VolumeSMAEnabled && cfg.VolumeSMAPeriod > 0 {
+		volumeSMA := CalculateVolumeSMA(candles, cfg.VolumeSMAPeriod)
+		for i, val := range volumeSMA {
+			if isValidValue(val) {
+				candles[i].Indicators.VolumeSMA = &val
+			}
 		}
+		log.Printf("[INDICATORS] Calculated Volume SMA(%d)", cfg.VolumeSMAPeriod)
 	}
-	log.Printf("[INDICATORS] Calculated Volume SMA(20)")
 }

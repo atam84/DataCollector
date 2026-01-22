@@ -372,3 +372,242 @@ func (r *JobRepository) FixMissingNextRunTime(ctx context.Context) (int64, error
 
 	return result.ModifiedCount, nil
 }
+
+// IncrementConsecutiveFailures increments the consecutive failure counter
+func (r *JobRepository) IncrementConsecutiveFailures(ctx context.Context, jobID string) error {
+	objID, err := primitive.ObjectIDFromHex(jobID)
+	if err != nil {
+		return fmt.Errorf("invalid job ID: %w", err)
+	}
+
+	now := time.Now()
+	filter := bson.M{"_id": objID}
+	update := bson.M{
+		"$inc": bson.M{
+			"run_state.consecutive_failures": 1,
+		},
+		"$set": bson.M{
+			"run_state.last_failure_time": now,
+			"updated_at":                  now,
+		},
+	}
+
+	_, err = r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("failed to increment consecutive failures: %w", err)
+	}
+
+	return nil
+}
+
+// ResetConsecutiveFailures resets the consecutive failure counter to 0
+func (r *JobRepository) ResetConsecutiveFailures(ctx context.Context, jobID string) error {
+	objID, err := primitive.ObjectIDFromHex(jobID)
+	if err != nil {
+		return fmt.Errorf("invalid job ID: %w", err)
+	}
+
+	filter := bson.M{"_id": objID}
+	update := bson.M{
+		"$set": bson.M{
+			"run_state.consecutive_failures": 0,
+			"updated_at":                     time.Now(),
+		},
+		"$unset": bson.M{
+			"run_state.last_failure_time": "",
+		},
+	}
+
+	_, err = r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("failed to reset consecutive failures: %w", err)
+	}
+
+	return nil
+}
+
+// GetJobsWithFailures returns jobs that have consecutive failures
+func (r *JobRepository) GetJobsWithFailures(ctx context.Context) ([]*models.Job, error) {
+	filter := bson.M{
+		"status": "active",
+		"run_state.consecutive_failures": bson.M{"$gt": 0},
+	}
+
+	opts := options.Find().SetSort(bson.D{{Key: "run_state.consecutive_failures", Value: -1}})
+
+	cursor, err := r.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find jobs with failures: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var jobs []*models.Job
+	if err := cursor.All(ctx, &jobs); err != nil {
+		return nil, fmt.Errorf("failed to decode jobs: %w", err)
+	}
+
+	return jobs, nil
+}
+
+// SetDependencies sets the dependencies for a job
+func (r *JobRepository) SetDependencies(ctx context.Context, jobID string, dependsOn []primitive.ObjectID) error {
+	objectID, err := primitive.ObjectIDFromHex(jobID)
+	if err != nil {
+		return fmt.Errorf("invalid job ID: %w", err)
+	}
+
+	update := bson.M{
+		"depends_on": dependsOn,
+		"updated_at": time.Now(),
+	}
+
+	result, err := r.collection.UpdateOne(
+		ctx,
+		bson.M{"_id": objectID},
+		bson.M{"$set": update},
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to set dependencies: %w", err)
+	}
+
+	if result.MatchedCount == 0 {
+		return fmt.Errorf("job not found")
+	}
+
+	return nil
+}
+
+// FindByIDs retrieves multiple jobs by their IDs
+func (r *JobRepository) FindByIDs(ctx context.Context, ids []primitive.ObjectID) ([]*models.Job, error) {
+	if len(ids) == 0 {
+		return []*models.Job{}, nil
+	}
+
+	filter := bson.M{"_id": bson.M{"$in": ids}}
+
+	cursor, err := r.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find jobs: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var jobs []*models.Job
+	if err := cursor.All(ctx, &jobs); err != nil {
+		return nil, fmt.Errorf("failed to decode jobs: %w", err)
+	}
+
+	return jobs, nil
+}
+
+// GetDependencyStatus returns the dependency status for a job
+func (r *JobRepository) GetDependencyStatus(ctx context.Context, jobID string, maxAge time.Duration) (*models.DependencyStatus, error) {
+	job, err := r.FindByID(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+
+	status := &models.DependencyStatus{
+		JobID:            jobID,
+		DependsOn:        make([]string, 0),
+		BlockedBy:        make([]string, 0),
+		AllDepsCompleted: true,
+	}
+
+	if len(job.DependsOn) == 0 {
+		return status, nil
+	}
+
+	// Convert to string IDs
+	for _, depID := range job.DependsOn {
+		status.DependsOn = append(status.DependsOn, depID.Hex())
+	}
+
+	// Get all dependency jobs
+	depJobs, err := r.FindByIDs(ctx, job.DependsOn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get dependency jobs: %w", err)
+	}
+
+	now := time.Now()
+	cutoffTime := now.Add(-maxAge)
+
+	// Check which dependencies have completed recently
+	for _, depJob := range depJobs {
+		completedRecently := depJob.RunState.LastRunTime != nil &&
+			depJob.RunState.LastRunTime.After(cutoffTime) &&
+			depJob.RunState.LastError == nil
+
+		if !completedRecently {
+			status.BlockedBy = append(status.BlockedBy, depJob.ID.Hex())
+			status.AllDepsCompleted = false
+		}
+	}
+
+	// Check for missing dependencies (deleted jobs)
+	if len(depJobs) != len(job.DependsOn) {
+		status.AllDepsCompleted = false
+	}
+
+	return status, nil
+}
+
+// CheckCircularDependency checks if adding a dependency would create a cycle
+func (r *JobRepository) CheckCircularDependency(ctx context.Context, jobID string, newDepID string) (bool, error) {
+	targetID, err := primitive.ObjectIDFromHex(jobID)
+	if err != nil {
+		return false, fmt.Errorf("invalid job ID: %w", err)
+	}
+
+	newDepObjID, err := primitive.ObjectIDFromHex(newDepID)
+	if err != nil {
+		return false, fmt.Errorf("invalid dependency ID: %w", err)
+	}
+
+	// A job cannot depend on itself
+	if jobID == newDepID {
+		return true, nil
+	}
+
+	// BFS to check for cycles
+	visited := make(map[primitive.ObjectID]bool)
+	queue := []primitive.ObjectID{newDepObjID}
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+
+		if currentID == targetID {
+			return true, nil // Found a cycle
+		}
+
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+
+		// Get the current job and its dependencies
+		currentJob, err := r.FindByID(ctx, currentID.Hex())
+		if err != nil {
+			continue // Job might not exist
+		}
+
+		queue = append(queue, currentJob.DependsOn...)
+	}
+
+	return false, nil
+}
+
+// FindJobsDependingOn returns jobs that depend on the given job ID
+func (r *JobRepository) FindJobsDependingOn(ctx context.Context, jobID string) ([]*models.Job, error) {
+	objectID, err := primitive.ObjectIDFromHex(jobID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid job ID: %w", err)
+	}
+
+	filter := bson.M{
+		"depends_on": objectID,
+	}
+
+	return r.FindAll(ctx, filter)
+}

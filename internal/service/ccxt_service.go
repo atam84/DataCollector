@@ -1,8 +1,10 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/yourusername/datacollector/internal/exchange"
@@ -10,11 +12,20 @@ import (
 )
 
 // CCXTService handles interactions with CCXT exchange library
-type CCXTService struct{}
+type CCXTService struct {
+	rateLimiter *RateLimiter
+}
 
 // NewCCXTService creates a new CCXT service
 func NewCCXTService() *CCXTService {
 	return &CCXTService{}
+}
+
+// NewCCXTServiceWithRateLimiter creates a CCXT service with rate limiting support
+func NewCCXTServiceWithRateLimiter(rateLimiter *RateLimiter) *CCXTService {
+	return &CCXTService{
+		rateLimiter: rateLimiter,
+	}
 }
 
 // FetchOHLCVData fetches real OHLCV data from an exchange using CCXT
@@ -26,6 +37,25 @@ func (s *CCXTService) FetchOHLCVData(
 	timeframe string,
 	sinceMs *int64, // nil for first fetch (get all history), timestamp for subsequent
 ) ([]models.Candle, error) {
+	// Use background context if no rate limiter (backward compatibility)
+	return s.FetchOHLCVDataWithContext(context.Background(), exchangeID, symbol, timeframe, sinceMs)
+}
+
+// FetchOHLCVDataWithContext fetches OHLCV data with context support for rate limiting
+func (s *CCXTService) FetchOHLCVDataWithContext(
+	ctx context.Context,
+	exchangeID string,
+	symbol string,
+	timeframe string,
+	sinceMs *int64,
+) ([]models.Candle, error) {
+
+	// Apply rate limiting before creating adapter (LoadMarkets is an API call)
+	if s.rateLimiter != nil {
+		if err := s.rateLimiter.WaitForSlot(ctx, exchangeID); err != nil {
+			return nil, fmt.Errorf("rate limit wait failed: %w", err)
+		}
+	}
 
 	// Create adapter for the exchange dynamically
 	adapter, err := exchange.NewCCXTAdapter(exchangeID, true)
@@ -37,7 +67,7 @@ func (s *CCXTService) FetchOHLCVData(
 
 	log.Printf("[CCXT] Successfully created adapter for %s", exchangeID)
 
-	// Load markets first
+	// Load markets first (this is an API call)
 	if err := adapter.LoadMarkets(); err != nil {
 		log.Printf("[CCXT] Failed to load markets for %s: %v", exchangeID, err)
 		return nil, fmt.Errorf("failed to load markets: %w", err)
@@ -59,12 +89,12 @@ func (s *CCXTService) FetchOHLCVData(
 		// FIRST EXECUTION: Fetch ALL available historical data with pagination
 		log.Printf("[CCXT] First execution - fetching ALL historical data for %s %s %s",
 			exchangeID, symbol, timeframe)
-		allCandles, err = s.fetchAllHistoricalData(adapter, symbol, timeframe, batchLimit)
+		allCandles, err = s.fetchAllHistoricalDataWithContext(ctx, adapter, exchangeID, symbol, timeframe, batchLimit)
 	} else {
 		// SUBSEQUENT EXECUTION: Fetch data since timestamp
 		log.Printf("[CCXT] Subsequent execution - fetching data since %d for %s %s %s",
 			*sinceMs, exchangeID, symbol, timeframe)
-		allCandles, err = s.fetchDataSince(adapter, symbol, timeframe, *sinceMs, batchLimit)
+		allCandles, err = s.fetchDataSinceWithContext(ctx, adapter, exchangeID, symbol, timeframe, *sinceMs, batchLimit)
 	}
 
 	if err != nil {
@@ -84,21 +114,86 @@ func (s *CCXTService) FetchOHLCVData(
 }
 
 // fetchAllHistoricalData fetches all available historical data using pagination
-// Strategy: Start from oldest available and fetch forward to present
+// DEPRECATED: Use fetchAllHistoricalDataWithContext instead
 func (s *CCXTService) fetchAllHistoricalData(
 	adapter *exchange.CCXTAdapter,
 	symbol string,
 	timeframe string,
 	batchLimit int,
 ) ([]models.Candle, error) {
-	var allCandles []models.Candle
+	return s.fetchAllHistoricalDataWithContext(context.Background(), adapter, "", symbol, timeframe, batchLimit)
+}
 
+// Date range fallback durations (in months) for handling "date too wide" errors
+var dateRangeFallbacks = []int{60, 12, 6, 3, 1} // 5 years, 1 year, 6 months, 3 months, 1 month
+
+// isDateRangeError checks if the error is a "date too wide" or similar range error
+func isDateRangeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	// Check for common date range error patterns across exchanges
+	return strings.Contains(errStr, "date of query is too wide") ||
+		strings.Contains(errStr, "date range") ||
+		strings.Contains(errStr, "time range") ||
+		strings.Contains(errStr, "range too large") ||
+		strings.Contains(errStr, "max limit") ||
+		strings.Contains(errStr, "exceeds maximum")
+}
+
+// fetchAllHistoricalDataWithContext fetches all available historical data with rate limiting
+// Strategy: Start from oldest available and fetch forward to present
+// Implements date range fallback for exchanges with range limits
+func (s *CCXTService) fetchAllHistoricalDataWithContext(
+	ctx context.Context,
+	adapter *exchange.CCXTAdapter,
+	exchangeID string,
+	symbol string,
+	timeframe string,
+	batchLimit int,
+) ([]models.Candle, error) {
 	// Calculate timeframe duration in milliseconds for pagination
 	tfDuration := getTimeframeDurationMs(timeframe)
 
-	// Start from a long time ago (5 years) to get all available data
-	// Most exchanges don't have data that old, so they'll return from their earliest available
-	startTime := time.Now().AddDate(-5, 0, 0) // 5 years ago
+	// Try with progressively shorter date ranges if we hit range limits
+	for fallbackIdx, months := range dateRangeFallbacks {
+		startTime := time.Now().AddDate(0, -months, 0)
+		log.Printf("[CCXT] Attempting historical fetch with %d month range (fallback %d/%d)", months, fallbackIdx+1, len(dateRangeFallbacks))
+
+		candles, err := s.fetchHistoricalFromDate(ctx, adapter, exchangeID, symbol, timeframe, startTime, batchLimit, tfDuration)
+
+		if err != nil {
+			if isDateRangeError(err) {
+				log.Printf("[CCXT] Date range error with %d months, trying shorter range: %v", months, err)
+				continue // Try next shorter range
+			}
+			// Non-range error, return what we have or the error
+			if len(candles) > 0 {
+				return candles, nil
+			}
+			return nil, err
+		}
+
+		// Success!
+		return candles, nil
+	}
+
+	return nil, fmt.Errorf("failed to fetch historical data: all date range fallbacks exhausted")
+}
+
+// fetchHistoricalFromDate fetches historical data starting from a specific date
+func (s *CCXTService) fetchHistoricalFromDate(
+	ctx context.Context,
+	adapter *exchange.CCXTAdapter,
+	exchangeID string,
+	symbol string,
+	timeframe string,
+	startTime time.Time,
+	batchLimit int,
+	tfDuration int64,
+) ([]models.Candle, error) {
+	var allCandles []models.Candle
 	currentSince := startTime
 
 	log.Printf("[CCXT] Starting historical fetch from %s", startTime.Format("2006-01-02"))
@@ -108,6 +203,28 @@ func (s *CCXTService) fetchAllHistoricalData(
 
 	for iteration < maxIterations {
 		iteration++
+
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			log.Printf("[CCXT] Context cancelled, returning %d candles collected so far", len(allCandles))
+			if len(allCandles) > 0 {
+				return allCandles, nil
+			}
+			return nil, ctx.Err()
+		default:
+		}
+
+		// Apply rate limiting before each API call
+		if s.rateLimiter != nil && exchangeID != "" {
+			if err := s.rateLimiter.WaitForSlot(ctx, exchangeID); err != nil {
+				log.Printf("[CCXT] Rate limit wait failed: %v", err)
+				if len(allCandles) > 0 {
+					return allCandles, nil
+				}
+				return nil, fmt.Errorf("rate limit wait failed: %w", err)
+			}
+		}
 
 		log.Printf("[CCXT] Fetching batch %d from %s", iteration, currentSince.Format("2006-01-02 15:04:05"))
 
@@ -151,8 +268,11 @@ func (s *CCXTService) fetchAllHistoricalData(
 		// Move forward: set next fetch to start after the last candle
 		currentSince = lastTimestamp.Add(time.Duration(tfDuration) * time.Millisecond)
 
-		// Small delay to respect rate limits
-		time.Sleep(100 * time.Millisecond)
+		// Note: Rate limiting is now handled by the RateLimiter, no fixed sleep needed
+		// If no rate limiter is configured, use a minimal safety delay
+		if s.rateLimiter == nil {
+			time.Sleep(1 * time.Second) // Safety delay when no rate limiter
+		}
 	}
 
 	log.Printf("[CCXT] Historical fetch complete: %d total candles in %d batches", len(allCandles), iteration)
@@ -160,8 +280,22 @@ func (s *CCXTService) fetchAllHistoricalData(
 }
 
 // fetchDataSince fetches data from a specific timestamp to present
+// DEPRECATED: Use fetchDataSinceWithContext instead
 func (s *CCXTService) fetchDataSince(
 	adapter *exchange.CCXTAdapter,
+	symbol string,
+	timeframe string,
+	sinceMs int64,
+	batchLimit int,
+) ([]models.Candle, error) {
+	return s.fetchDataSinceWithContext(context.Background(), adapter, "", symbol, timeframe, sinceMs, batchLimit)
+}
+
+// fetchDataSinceWithContext fetches data from a specific timestamp with rate limiting
+func (s *CCXTService) fetchDataSinceWithContext(
+	ctx context.Context,
+	adapter *exchange.CCXTAdapter,
+	exchangeID string,
 	symbol string,
 	timeframe string,
 	sinceMs int64,
@@ -179,6 +313,28 @@ func (s *CCXTService) fetchDataSince(
 
 	for iteration < maxIterations {
 		iteration++
+
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			log.Printf("[CCXT] Context cancelled, returning %d candles collected so far", len(allCandles))
+			if len(allCandles) > 0 {
+				return allCandles, nil
+			}
+			return nil, ctx.Err()
+		default:
+		}
+
+		// Apply rate limiting before each API call
+		if s.rateLimiter != nil && exchangeID != "" {
+			if err := s.rateLimiter.WaitForSlot(ctx, exchangeID); err != nil {
+				log.Printf("[CCXT] Rate limit wait failed: %v", err)
+				if len(allCandles) > 0 {
+					return allCandles, nil
+				}
+				return nil, fmt.Errorf("rate limit wait failed: %w", err)
+			}
+		}
 
 		candles, err := adapter.FetchOHLCV(symbol, timeframe, &currentSince, batchLimit)
 		if err != nil {
@@ -208,7 +364,12 @@ func (s *CCXTService) fetchDataSince(
 		}
 
 		currentSince = lastTimestamp.Add(time.Duration(tfDuration) * time.Millisecond)
-		time.Sleep(100 * time.Millisecond)
+
+		// Note: Rate limiting is now handled by the RateLimiter, no fixed sleep needed
+		// If no rate limiter is configured, use a minimal safety delay
+		if s.rateLimiter == nil {
+			time.Sleep(1 * time.Second) // Safety delay when no rate limiter
+		}
 	}
 
 	log.Printf("[CCXT] Incremental fetch complete: %d candles", len(allCandles))

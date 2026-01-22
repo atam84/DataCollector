@@ -88,11 +88,16 @@ func main() {
 	connectorRepo := repository.NewConnectorRepository(db)
 	jobRepo := repository.NewJobRepository(db)
 	ohlcvRepo := repository.NewOHLCVRepository(db)
+	alertRepo := repository.NewAlertRepository(db)
+	retentionRepo := repository.NewRetentionRepository(db)
+	indicatorConfigRepo := repository.NewIndicatorConfigRepository(db)
 
 	// Initialize services
 	jobExecutor := service.NewJobExecutor(jobRepo, connectorRepo, ohlcvRepo, cfg)
 	jobScheduler := service.NewJobScheduler(jobRepo, jobExecutor)
 	recalcService := service.NewRecalculatorService(jobRepo, connectorRepo, ohlcvRepo)
+	alertService := service.NewAlertService(alertRepo, jobRepo, connectorRepo)
+	retentionService := service.NewRetentionService(retentionRepo)
 
 	// Start automatic job scheduler
 	jobScheduler.Start()
@@ -100,9 +105,12 @@ func main() {
 
 	// Initialize handlers
 	healthHandler := handlers.NewHealthHandler(db)
-	connectorHandler := handlers.NewConnectorHandler(connectorRepo, jobRepo, cfg)
+	connectorHandler := handlers.NewConnectorHandlerWithOHLCV(connectorRepo, jobRepo, ohlcvRepo, cfg)
 	jobHandler := handlers.NewJobHandler(jobRepo, connectorRepo, ohlcvRepo, jobExecutor)
 	indicatorHandler := handlers.NewIndicatorHandler(ohlcvRepo, recalcService)
+	indicatorConfigHandler := handlers.NewIndicatorConfigHandler(indicatorConfigRepo)
+	alertHandler := handlers.NewAlertHandler(alertRepo, alertService)
+	retentionHandler := handlers.NewRetentionHandler(retentionRepo, retentionService)
 
 	// Health routes
 	api.Get("/health", healthHandler.GetHealth)
@@ -113,6 +121,9 @@ func main() {
 	api.Get("/exchanges/:id/metadata", healthHandler.GetExchangeMetadata)
 	api.Get("/exchanges/:id/debug", healthHandler.DebugExchange)
 	api.Get("/exchanges/:id/symbols", healthHandler.GetExchangeSymbols)
+	api.Get("/exchanges/:id/symbols/validate", healthHandler.ValidateSymbol)
+	api.Post("/exchanges/:id/symbols/validate", healthHandler.ValidateSymbols)
+	api.Get("/exchanges/:id/symbols/popular", healthHandler.GetPopularSymbols)
 
 	// Connector routes
 	api.Post("/connectors", connectorHandler.CreateConnector)
@@ -122,6 +133,12 @@ func main() {
 	api.Delete("/connectors/:id", connectorHandler.DeleteConnector)
 	api.Post("/connectors/:id/suspend", connectorHandler.SuspendConnector)
 	api.Post("/connectors/:id/resume", connectorHandler.ResumeConnector)
+	api.Get("/connectors/:id/rate-limit", connectorHandler.GetRateLimitStatus)
+	api.Post("/connectors/:id/rate-limit/reset", connectorHandler.ResetRateLimitUsage)
+	api.Get("/connectors/:id/stats", connectorHandler.GetConnectorStats)
+
+	// Global stats
+	api.Get("/stats", connectorHandler.GetAllStats)
 
 	// Job routes (queue and batch routes MUST come before :id routes)
 	api.Post("/jobs", jobHandler.CreateJob)
@@ -140,6 +157,11 @@ func main() {
 	api.Get("/jobs/:id/export", jobHandler.ExportJobData)
 	api.Get("/jobs/:id/export/ml", jobHandler.ExportJobDataForML)
 
+	// Job dependency routes
+	api.Get("/jobs/:id/dependencies", jobHandler.GetJobDependencies)
+	api.Put("/jobs/:id/dependencies", jobHandler.SetJobDependencies)
+	api.Get("/jobs/:id/dependents", jobHandler.GetJobDependents)
+
 	// Connector-specific job routes
 	api.Get("/connectors/:exchangeId/jobs", jobHandler.GetJobsByConnector)
 
@@ -151,6 +173,52 @@ func main() {
 	// Indicator recalculation routes
 	api.Post("/jobs/:id/indicators/recalculate", indicatorHandler.RecalculateJob)
 	api.Post("/connectors/:id/indicators/recalculate", indicatorHandler.RecalculateConnector)
+
+	// Indicator configuration routes (builtin-defaults, default, validation-rules, and validate MUST come before :id routes)
+	api.Get("/indicators/configs", indicatorConfigHandler.GetConfigs)
+	api.Get("/indicators/configs/builtin-defaults", indicatorConfigHandler.GetBuiltinDefaults)
+	api.Get("/indicators/configs/default", indicatorConfigHandler.GetDefaultConfig)
+	api.Get("/indicators/configs/validation-rules", indicatorConfigHandler.GetValidationRules)
+	api.Post("/indicators/configs/validate", indicatorConfigHandler.ValidateConfig)
+	api.Post("/indicators/configs", indicatorConfigHandler.CreateConfig)
+	api.Get("/indicators/configs/:id", indicatorConfigHandler.GetConfig)
+	api.Put("/indicators/configs/:id", indicatorConfigHandler.UpdateConfig)
+	api.Delete("/indicators/configs/:id", indicatorConfigHandler.DeleteConfig)
+	api.Post("/indicators/configs/:id/default", indicatorConfigHandler.SetDefaultConfig)
+
+	// Alert routes (summary and config routes MUST come before :id routes)
+	api.Get("/alerts", alertHandler.GetAlerts)
+	api.Get("/alerts/active", alertHandler.GetActiveAlerts)
+	api.Get("/alerts/summary", alertHandler.GetAlertSummary)
+	api.Get("/alerts/config", alertHandler.GetAlertConfig)
+	api.Put("/alerts/config", alertHandler.UpdateAlertConfig)
+	api.Post("/alerts/acknowledge-all", alertHandler.AcknowledgeAllAlerts)
+	api.Post("/alerts/check", alertHandler.TriggerAlertCheck)
+	api.Post("/alerts/cleanup", alertHandler.CleanupAlerts)
+	api.Get("/alerts/:id", alertHandler.GetAlert)
+	api.Post("/alerts/:id/acknowledge", alertHandler.AcknowledgeAlert)
+	api.Post("/alerts/:id/resolve", alertHandler.ResolveAlert)
+	api.Delete("/alerts/:id", alertHandler.DeleteAlert)
+
+	// Job and connector alerts
+	api.Get("/jobs/:id/alerts", alertHandler.GetAlertsByJob)
+	api.Get("/connectors/:exchangeId/alerts", alertHandler.GetAlertsByConnector)
+
+	// Retention policy routes
+	api.Get("/retention/policies", retentionHandler.GetPolicies)
+	api.Post("/retention/policies", retentionHandler.CreatePolicy)
+	api.Get("/retention/policies/:id", retentionHandler.GetPolicy)
+	api.Put("/retention/policies/:id", retentionHandler.UpdatePolicy)
+	api.Delete("/retention/policies/:id", retentionHandler.DeletePolicy)
+
+	// Retention config and cleanup routes
+	api.Get("/retention/config", retentionHandler.GetConfig)
+	api.Put("/retention/config", retentionHandler.UpdateConfig)
+	api.Get("/retention/usage", retentionHandler.GetDataUsage)
+	api.Post("/retention/cleanup", retentionHandler.RunCleanup)
+	api.Post("/retention/cleanup/default", retentionHandler.RunDefaultCleanup)
+	api.Post("/retention/cleanup/empty", retentionHandler.DeleteEmptyChunks)
+	api.Post("/retention/cleanup/exchange/:exchangeId", retentionHandler.CleanupExchange)
 
 	// Start server
 	address := fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port)

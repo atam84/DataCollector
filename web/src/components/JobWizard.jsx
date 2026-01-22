@@ -5,12 +5,14 @@ import {
   ArrowRightIcon,
   CheckIcon,
   MagnifyingGlassIcon,
-  ClockIcon
+  ClockIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline'
 
 const API_BASE = '/api/v1'
 
-const POPULAR_PAIRS = [
+// Fallback popular pairs (used if API fails)
+const FALLBACK_POPULAR_PAIRS = [
   'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT',
   'ADA/USDT', 'DOGE/USDT', 'DOT/USDT', 'MATIC/USDT', 'AVAX/USDT',
   'LINK/USDT', 'UNI/USDT', 'ATOM/USDT', 'LTC/USDT', 'ETC/USDT',
@@ -60,8 +62,12 @@ function JobWizard({ connectors, onClose, onSave }) {
   // Exchange-specific data
   const [exchangeMetadata, setExchangeMetadata] = useState(null)
   const [exchangeSymbols, setExchangeSymbols] = useState([])
+  const [popularPairs, setPopularPairs] = useState([])
   const [loadingSymbols, setLoadingSymbols] = useState(false)
+  const [loadingPopular, setLoadingPopular] = useState(false)
   const [symbolSearch, setSymbolSearch] = useState('')
+  const [validationResults, setValidationResults] = useState({})
+  const [validating, setValidating] = useState(false)
 
   // Fetch exchange metadata when connector changes
   useEffect(() => {
@@ -85,24 +91,45 @@ function JobWizard({ connectors, onClose, onSave }) {
     fetchExchangeData()
   }, [selectedConnector])
 
-  // Fetch symbols when entering step 2
+  // Fetch symbols and popular pairs when entering step 2
   useEffect(() => {
-    if (currentStep === 2 && selectedConnector && exchangeSymbols.length === 0) {
-      const fetchSymbols = async () => {
-        setLoadingSymbols(true)
-        try {
-          const response = await axios.get(`${API_BASE}/exchanges/${selectedConnector}/symbols`)
-          setExchangeSymbols(response.data.symbols || [])
-        } catch (err) {
-          console.error('Failed to fetch exchange symbols:', err)
-          setExchangeSymbols([])
-        } finally {
-          setLoadingSymbols(false)
+    if (currentStep === 2 && selectedConnector) {
+      // Fetch all symbols
+      if (exchangeSymbols.length === 0) {
+        const fetchSymbols = async () => {
+          setLoadingSymbols(true)
+          try {
+            const response = await axios.get(`${API_BASE}/exchanges/${selectedConnector}/symbols`)
+            setExchangeSymbols(response.data.symbols || [])
+          } catch (err) {
+            console.error('Failed to fetch exchange symbols:', err)
+            setExchangeSymbols([])
+          } finally {
+            setLoadingSymbols(false)
+          }
         }
+        fetchSymbols()
       }
-      fetchSymbols()
+
+      // Fetch popular pairs for this exchange
+      if (popularPairs.length === 0) {
+        const fetchPopular = async () => {
+          setLoadingPopular(true)
+          try {
+            const response = await axios.get(`${API_BASE}/exchanges/${selectedConnector}/symbols/popular`)
+            setPopularPairs(response.data.popular || [])
+          } catch (err) {
+            console.error('Failed to fetch popular pairs:', err)
+            // Use fallback and filter by available symbols
+            setPopularPairs(FALLBACK_POPULAR_PAIRS)
+          } finally {
+            setLoadingPopular(false)
+          }
+        }
+        fetchPopular()
+      }
     }
-  }, [currentStep, selectedConnector, exchangeSymbols.length])
+  }, [currentStep, selectedConnector, exchangeSymbols.length, popularPairs.length])
 
   // Get available timeframes from exchange metadata or use defaults
   const availableTimeframes = useMemo(() => {
@@ -129,7 +156,33 @@ function JobWizard({ connectors, onClose, onSave }) {
     return exchangeSymbols.includes(symbol)
   }
 
-  const handleNext = () => {
+  // Validate selected pairs before moving to step 3
+  const validateSelectedPairs = async () => {
+    if (selectedPairs.length === 0 || exchangeSymbols.length === 0) return true
+
+    setValidating(true)
+    try {
+      const response = await axios.post(`${API_BASE}/exchanges/${selectedConnector}/symbols/validate`, {
+        symbols: selectedPairs
+      })
+
+      setValidationResults(response.data.results || {})
+
+      if (response.data.invalid_count > 0) {
+        const invalidSymbols = selectedPairs.filter(p => !response.data.results[p])
+        return { valid: false, invalid: invalidSymbols }
+      }
+      return { valid: true }
+    } catch (err) {
+      console.error('Failed to validate symbols:', err)
+      // If validation fails, allow to proceed but warn
+      return { valid: true, warning: 'Could not validate symbols' }
+    } finally {
+      setValidating(false)
+    }
+  }
+
+  const handleNext = async () => {
     if (currentStep === 1 && !selectedConnector) {
       alert('Please select a connector')
       return
@@ -138,6 +191,19 @@ function JobWizard({ connectors, onClose, onSave }) {
       alert('Please select at least one cryptocurrency pair')
       return
     }
+
+    // Validate symbols before moving to step 3
+    if (currentStep === 2) {
+      const validationResult = await validateSelectedPairs()
+      if (!validationResult.valid) {
+        const invalidList = validationResult.invalid.join(', ')
+        const proceed = window.confirm(
+          `The following pairs may not be available on ${getConnectorName()}:\n\n${invalidList}\n\nDo you want to continue anyway?`
+        )
+        if (!proceed) return
+      }
+    }
+
     setCurrentStep(currentStep + 1)
   }
 
@@ -172,7 +238,10 @@ function JobWizard({ connectors, onClose, onSave }) {
     setSelectedConnector(exchangeId)
     // Reset exchange-specific data when connector changes
     setExchangeSymbols([])
+    setPopularPairs([])
     setSelectedTimeframes([])
+    setSelectedPairs([])
+    setValidationResults({})
   }
 
   const handleCreateJobs = async () => {
@@ -370,35 +439,68 @@ function JobWizard({ connectors, onClose, onSave }) {
                 </div>
               )}
 
-              {/* Popular Pairs */}
+              {/* Popular Pairs - Dynamic based on exchange */}
               <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-3">
-                  Popular Pairs ({selectedPairs.length} selected)
+                  Popular Pairs on {getConnectorName()} ({selectedPairs.length} selected)
+                  {loadingPopular && <span className="text-xs text-gray-500 ml-2">(Loading...)</span>}
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-                  {POPULAR_PAIRS.map(pair => {
-                    const available = isSymbolAvailable(pair)
-                    return (
-                      <button
-                        key={pair}
-                        onClick={() => togglePair(pair)}
-                        className={`px-3 py-2 text-sm border-2 rounded-lg transition ${
-                          selectedPairs.includes(pair)
-                            ? 'border-green-500 bg-green-50 text-green-700 font-medium'
-                            : available
-                              ? 'border-gray-200 hover:border-green-300 text-gray-700'
-                              : 'border-gray-100 bg-gray-50 text-gray-400'
-                        }`}
-                        title={available ? pair : `${pair} may not be available on this exchange`}
-                      >
-                        {pair}
-                        {!available && exchangeSymbols.length > 0 && (
-                          <span className="ml-1 text-xs text-orange-500">?</span>
-                        )}
-                      </button>
-                    )
-                  })}
-                </div>
+                {popularPairs.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                    {popularPairs.map(pair => {
+                      const isSelected = selectedPairs.includes(pair)
+                      const isValidated = validationResults[pair]
+                      const showWarning = validationResults[pair] === false
+                      return (
+                        <button
+                          key={pair}
+                          onClick={() => togglePair(pair)}
+                          className={`px-3 py-2 text-sm border-2 rounded-lg transition ${
+                            isSelected
+                              ? showWarning
+                                ? 'border-orange-500 bg-orange-50 text-orange-700 font-medium'
+                                : 'border-green-500 bg-green-50 text-green-700 font-medium'
+                              : 'border-gray-200 hover:border-green-300 text-gray-700'
+                          }`}
+                          title={pair}
+                        >
+                          {pair}
+                          {showWarning && <ExclamationTriangleIcon className="w-3 h-3 inline ml-1 text-orange-500" />}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : !loadingPopular && (
+                  <div className="text-sm text-gray-500 p-4 bg-gray-50 rounded-lg">
+                    No popular pairs found. Use the search above to find available symbols.
+                  </div>
+                )}
+
+                {/* Quick Actions */}
+                {popularPairs.length > 0 && (
+                  <div className="mt-3 flex space-x-2">
+                    <button
+                      onClick={() => {
+                        // Select top 5 popular pairs
+                        const top5 = popularPairs.slice(0, 5)
+                        setSelectedPairs(prev => [...new Set([...prev, ...top5])])
+                      }}
+                      className="text-xs px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition"
+                    >
+                      + Top 5
+                    </button>
+                    <button
+                      onClick={() => {
+                        // Select all USDT pairs
+                        const usdtPairs = popularPairs.filter(p => p.endsWith('/USDT'))
+                        setSelectedPairs(prev => [...new Set([...prev, ...usdtPairs])])
+                      }}
+                      className="text-xs px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition"
+                    >
+                      + All USDT
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Custom Pair */}
@@ -573,10 +675,10 @@ function JobWizard({ connectors, onClose, onSave }) {
                 <button
                   onClick={handleNext}
                   className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center"
-                  disabled={saving}
+                  disabled={saving || validating}
                 >
-                  Next
-                  <ArrowRightIcon className="w-4 h-4 ml-2" />
+                  {validating ? 'Validating...' : 'Next'}
+                  {!validating && <ArrowRightIcon className="w-4 h-4 ml-2" />}
                 </button>
               )}
 

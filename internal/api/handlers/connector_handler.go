@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson"
 
+	"github.com/yourusername/datacollector/internal/api/errors"
 	"github.com/yourusername/datacollector/internal/config"
 	"github.com/yourusername/datacollector/internal/models"
 	"github.com/yourusername/datacollector/internal/repository"
@@ -14,9 +16,10 @@ import (
 
 // ConnectorHandler handles connector-related endpoints
 type ConnectorHandler struct {
-	repo    *repository.ConnectorRepository
-	jobRepo *repository.JobRepository
-	config  *config.Config
+	repo     *repository.ConnectorRepository
+	jobRepo  *repository.JobRepository
+	ohlcvRepo *repository.OHLCVRepository
+	config   *config.Config
 }
 
 // NewConnectorHandler creates a new connector handler
@@ -28,6 +31,16 @@ func NewConnectorHandler(repo *repository.ConnectorRepository, jobRepo *reposito
 	}
 }
 
+// NewConnectorHandlerWithOHLCV creates a new connector handler with OHLCV repository
+func NewConnectorHandlerWithOHLCV(repo *repository.ConnectorRepository, jobRepo *repository.JobRepository, ohlcvRepo *repository.OHLCVRepository, cfg *config.Config) *ConnectorHandler {
+	return &ConnectorHandler{
+		repo:      repo,
+		jobRepo:   jobRepo,
+		ohlcvRepo: ohlcvRepo,
+		config:    cfg,
+	}
+}
+
 // CreateConnector creates a new connector
 // POST /api/v1/connectors
 func (h *ConnectorHandler) CreateConnector(c *fiber.Ctx) error {
@@ -36,22 +49,37 @@ func (h *ConnectorHandler) CreateConnector(c *fiber.Ctx) error {
 
 	var req models.ConnectorCreateRequest
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
+		return errors.SendError(c, errors.BadRequest("Invalid request body"))
 	}
 
 	// Validate required fields
 	if req.ExchangeID == "" || req.DisplayName == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "exchange_id and display_name are required",
-		})
+		return errors.SendError(c, errors.ValidationError("Missing required fields", map[string]string{
+			"exchange_id":  "required",
+			"display_name": "required",
+		}))
 	}
 
 	if req.RateLimit.Limit <= 0 || req.RateLimit.PeriodMs < 1000 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Valid rate limit configuration is required",
-		})
+		return errors.SendError(c, errors.ValidationError("Invalid rate limit configuration", map[string]interface{}{
+			"rate_limit.limit":     "must be > 0",
+			"rate_limit.period_ms": "must be >= 1000",
+		}))
+	}
+
+	// Calculate MinDelayMs if not provided
+	minDelayMs := req.RateLimit.MinDelayMs
+	if minDelayMs == 0 {
+		// Calculate from limit/period: e.g., 20 calls per 60000ms = 3000ms between calls
+		if req.RateLimit.Limit > 0 {
+			minDelayMs = req.RateLimit.PeriodMs / req.RateLimit.Limit
+			// Ensure minimum of 1000ms (1 second) for safety
+			if minDelayMs < 1000 {
+				minDelayMs = 1000
+			}
+		} else {
+			minDelayMs = 5000 // Default 5 seconds
+		}
 	}
 
 	// Create connector model
@@ -62,6 +90,7 @@ func (h *ConnectorHandler) CreateConnector(c *fiber.Ctx) error {
 		RateLimit: models.RateLimit{
 			Limit:       req.RateLimit.Limit,
 			PeriodMs:    req.RateLimit.PeriodMs,
+			MinDelayMs:  minDelayMs,
 			Usage:       0,
 			PeriodStart: time.Now(),
 		},
@@ -69,12 +98,16 @@ func (h *ConnectorHandler) CreateConnector(c *fiber.Ctx) error {
 
 	// Create in database
 	if err := h.repo.Create(ctx, connector); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		if strings.Contains(err.Error(), "already exists") {
+			return errors.SendError(c, errors.Conflict("Connector already exists for this exchange"))
+		}
+		return errors.SendError(c, errors.DatabaseError("Failed to create connector"))
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(connector)
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"success": true,
+		"data":    connector,
+	})
 }
 
 // GetConnectors retrieves all connectors
@@ -91,9 +124,7 @@ func (h *ConnectorHandler) GetConnectors(c *fiber.Ctx) error {
 
 	connectors, err := h.repo.FindAll(ctx, filter)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		return errors.SendError(c, errors.DatabaseError("Failed to retrieve connectors"))
 	}
 
 	// Enhance connectors with job counts
@@ -111,8 +142,9 @@ func (h *ConnectorHandler) GetConnectors(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"data":  responses,
-		"count": len(responses),
+		"success": true,
+		"data":    responses,
+		"count":   len(responses),
 	})
 }
 
@@ -125,9 +157,10 @@ func (h *ConnectorHandler) GetConnector(c *fiber.Ctx) error {
 	id := c.Params("id")
 	connector, err := h.repo.FindByID(ctx, id)
 	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid connector ID format"))
+		}
+		return errors.SendError(c, errors.NotFound("Connector"))
 	}
 
 	// Enhance with job counts
@@ -140,7 +173,10 @@ func (h *ConnectorHandler) GetConnector(c *fiber.Ctx) error {
 		ActiveJobCount: activeJobCount,
 	}
 
-	return c.JSON(response)
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data":    response,
+	})
 }
 
 // UpdateConnector updates a connector
@@ -153,9 +189,7 @@ func (h *ConnectorHandler) UpdateConnector(c *fiber.Ctx) error {
 
 	var req models.ConnectorUpdateRequest
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
+		return errors.SendError(c, errors.BadRequest("Invalid request body"))
 	}
 
 	// Build update map
@@ -167,9 +201,10 @@ func (h *ConnectorHandler) UpdateConnector(c *fiber.Ctx) error {
 
 	if req.Status != nil {
 		if *req.Status != "active" && *req.Status != "disabled" {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "status must be 'active' or 'disabled'",
-			})
+			return errors.SendError(c, errors.ValidationError("Invalid status value", map[string]interface{}{
+				"status":         *req.Status,
+				"allowed_values": []string{"active", "disabled"},
+			}))
 		}
 		update["status"] = *req.Status
 	}
@@ -181,30 +216,33 @@ func (h *ConnectorHandler) UpdateConnector(c *fiber.Ctx) error {
 		if req.RateLimit.PeriodMs != nil {
 			update["rate_limit.period_ms"] = *req.RateLimit.PeriodMs
 		}
+		if req.RateLimit.MinDelayMs != nil {
+			update["rate_limit.min_delay_ms"] = *req.RateLimit.MinDelayMs
+		}
 	}
 
 	if len(update) == 0 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "No fields to update",
-		})
+		return errors.SendError(c, errors.BadRequest("No fields to update"))
 	}
 
 	// Update connector
 	if err := h.repo.Update(ctx, id, update); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		if strings.Contains(err.Error(), "not found") {
+			return errors.SendError(c, errors.NotFound("Connector"))
+		}
+		return errors.SendError(c, errors.DatabaseError("Failed to update connector"))
 	}
 
 	// Fetch updated connector
 	connector, err := h.repo.FindByID(ctx, id)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		return errors.SendError(c, errors.DatabaseError("Failed to retrieve updated connector"))
 	}
 
-	return c.JSON(connector)
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data":    connector,
+	})
 }
 
 // DeleteConnector deletes a connector
@@ -216,9 +254,13 @@ func (h *ConnectorHandler) DeleteConnector(c *fiber.Ctx) error {
 	id := c.Params("id")
 
 	if err := h.repo.Delete(ctx, id); err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid connector ID format"))
+		}
+		if strings.Contains(err.Error(), "not found") {
+			return errors.SendError(c, errors.NotFound("Connector"))
+		}
+		return errors.SendError(c, errors.DatabaseError("Failed to delete connector"))
 	}
 
 	return c.Status(fiber.StatusNoContent).Send(nil)
@@ -235,24 +277,21 @@ func (h *ConnectorHandler) SuspendConnector(c *fiber.Ctx) error {
 	// Get connector first to get exchange_id
 	connector, err := h.repo.FindByID(ctx, id)
 	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid connector ID format"))
+		}
+		return errors.SendError(c, errors.NotFound("Connector"))
 	}
 
 	// Update connector status to disabled (suspended)
 	update := bson.M{"status": "disabled"}
 	if err := h.repo.Update(ctx, id, update); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		return errors.SendError(c, errors.DatabaseError("Failed to suspend connector"))
 	}
 
 	// Suspend all jobs attached to this connector
 	if err := h.jobRepo.UpdateStatusByConnector(ctx, connector.ExchangeID, "paused"); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to suspend jobs: " + err.Error(),
-		})
+		return errors.SendError(c, errors.DatabaseError("Failed to suspend attached jobs"))
 	}
 
 	// Fetch updated connector with job counts
@@ -267,8 +306,9 @@ func (h *ConnectorHandler) SuspendConnector(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"message":   "Connector and all attached jobs suspended successfully",
-		"connector": response,
+		"success": true,
+		"message": "Connector and all attached jobs suspended successfully",
+		"data":    response,
 	})
 }
 
@@ -283,24 +323,21 @@ func (h *ConnectorHandler) ResumeConnector(c *fiber.Ctx) error {
 	// Get connector first to get exchange_id
 	connector, err := h.repo.FindByID(ctx, id)
 	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid connector ID format"))
+		}
+		return errors.SendError(c, errors.NotFound("Connector"))
 	}
 
 	// Update connector status to active
 	update := bson.M{"status": "active"}
 	if err := h.repo.Update(ctx, id, update); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+		return errors.SendError(c, errors.DatabaseError("Failed to resume connector"))
 	}
 
 	// Resume all jobs attached to this connector
 	if err := h.jobRepo.UpdateStatusByConnector(ctx, connector.ExchangeID, "active"); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to resume jobs: " + err.Error(),
-		})
+		return errors.SendError(c, errors.DatabaseError("Failed to resume attached jobs"))
 	}
 
 	// Fetch updated connector with job counts
@@ -315,8 +352,228 @@ func (h *ConnectorHandler) ResumeConnector(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"message":   "Connector and all attached jobs resumed successfully",
-		"connector": response,
+		"success": true,
+		"message": "Connector and all attached jobs resumed successfully",
+		"data":    response,
 	})
+}
+
+// GetRateLimitStatus returns the current rate limit status for a connector
+// GET /api/v1/connectors/:id/rate-limit
+func (h *ConnectorHandler) GetRateLimitStatus(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	id := c.Params("id")
+
+	connector, err := h.repo.FindByID(ctx, id)
+	if err != nil {
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid connector ID format"))
+		}
+		return errors.SendError(c, errors.NotFound("Connector"))
+	}
+
+	// Calculate current status
+	now := time.Now()
+	periodElapsed := now.Sub(connector.RateLimit.PeriodStart).Milliseconds()
+	periodRemaining := int64(connector.RateLimit.PeriodMs) - periodElapsed
+	if periodRemaining < 0 {
+		periodRemaining = 0
+	}
+
+	// Calculate effective min delay
+	minDelayMs := connector.RateLimit.MinDelayMs
+	if minDelayMs == 0 && connector.RateLimit.Limit > 0 && connector.RateLimit.PeriodMs > 0 {
+		minDelayMs = connector.RateLimit.PeriodMs / connector.RateLimit.Limit
+		if minDelayMs < 1000 {
+			minDelayMs = 1000
+		}
+	}
+	if minDelayMs == 0 {
+		minDelayMs = 5000 // Default 5 seconds
+	}
+
+	// Calculate time since last API call
+	var lastCallMs int64 = -1
+	var canCallNow bool = true
+	if connector.RateLimit.LastAPICallAt != nil {
+		lastCallMs = now.Sub(*connector.RateLimit.LastAPICallAt).Milliseconds()
+		canCallNow = lastCallMs >= int64(minDelayMs) && connector.RateLimit.Usage < connector.RateLimit.Limit
+	}
+
+	return c.JSON(fiber.Map{
+		"exchange_id":         connector.ExchangeID,
+		"limit":               connector.RateLimit.Limit,
+		"usage":               connector.RateLimit.Usage,
+		"period_ms":           connector.RateLimit.PeriodMs,
+		"period_remaining_ms": periodRemaining,
+		"min_delay_ms":        minDelayMs,
+		"last_call_ms":        lastCallMs,
+		"can_call_now":        canCallNow,
+		"last_api_call_at":    connector.RateLimit.LastAPICallAt,
+		"period_start":        connector.RateLimit.PeriodStart,
+	})
+}
+
+// ResetRateLimitUsage resets the rate limit usage counter for a connector
+// POST /api/v1/connectors/:id/rate-limit/reset
+func (h *ConnectorHandler) ResetRateLimitUsage(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	id := c.Params("id")
+
+	connector, err := h.repo.FindByID(ctx, id)
+	if err != nil {
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid connector ID format"))
+		}
+		return errors.SendError(c, errors.NotFound("Connector"))
+	}
+
+	// Reset the rate limit period
+	if err := h.repo.ResetRateLimitPeriod(ctx, connector.ExchangeID); err != nil {
+		return errors.SendError(c, errors.DatabaseError("Failed to reset rate limit"))
+	}
+
+	return c.JSON(fiber.Map{
+		"success":     true,
+		"message":     "Rate limit usage reset successfully",
+		"exchange_id": connector.ExchangeID,
+	})
+}
+
+// GetConnectorStats returns statistics for a connector including data volume
+// GET /api/v1/connectors/:id/stats
+func (h *ConnectorHandler) GetConnectorStats(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	id := c.Params("id")
+
+	connector, err := h.repo.FindByID(ctx, id)
+	if err != nil {
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid connector ID format"))
+		}
+		return errors.SendError(c, errors.NotFound("Connector"))
+	}
+
+	// Get job counts
+	jobCount, _ := h.jobRepo.CountByConnector(ctx, connector.ExchangeID)
+	activeJobCount, _ := h.jobRepo.CountActiveByConnector(ctx, connector.ExchangeID)
+
+	// Get OHLCV stats if repository is available
+	var ohlcvStats *models.OHLCVStats
+	if h.ohlcvRepo != nil {
+		ohlcvStats, _ = h.ohlcvRepo.GetStatsByExchange(ctx, connector.ExchangeID)
+	}
+
+	// Get last run time from jobs
+	jobs, _ := h.jobRepo.FindByConnector(ctx, connector.ExchangeID)
+	var lastRunTime *time.Time
+	var failedJobs int
+	for _, job := range jobs {
+		if job.RunState.LastRunTime != nil {
+			if lastRunTime == nil || job.RunState.LastRunTime.After(*lastRunTime) {
+				lastRunTime = job.RunState.LastRunTime
+			}
+		}
+		if job.RunState.LastError != nil && *job.RunState.LastError != "" {
+			failedJobs++
+		}
+	}
+
+	response := fiber.Map{
+		"connector_id":     connector.ID.Hex(),
+		"exchange_id":      connector.ExchangeID,
+		"display_name":     connector.DisplayName,
+		"status":           connector.Status,
+		"job_count":        jobCount,
+		"active_job_count": activeJobCount,
+		"failed_jobs":      failedJobs,
+		"last_run_time":    lastRunTime,
+		"rate_limit": fiber.Map{
+			"limit":        connector.RateLimit.Limit,
+			"usage":        connector.RateLimit.Usage,
+			"period_ms":    connector.RateLimit.PeriodMs,
+			"min_delay_ms": connector.RateLimit.MinDelayMs,
+		},
+	}
+
+	if ohlcvStats != nil {
+		response["data_stats"] = fiber.Map{
+			"total_candles":     ohlcvStats.TotalCandles,
+			"total_chunks":      ohlcvStats.TotalChunks,
+			"unique_symbols":    ohlcvStats.UniqueSymbols,
+			"unique_timeframes": ohlcvStats.UniqueTimeframes,
+			"oldest_data":       ohlcvStats.OldestData,
+			"newest_data":       ohlcvStats.NewestData,
+		}
+	}
+
+	return c.JSON(response)
+}
+
+// GetAllStats returns aggregate statistics across all connectors
+// GET /api/v1/stats
+func (h *ConnectorHandler) GetAllStats(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Get connector stats
+	connectors, err := h.repo.FindAll(ctx, bson.M{})
+	if err != nil {
+		return errors.SendError(c, errors.DatabaseError("Failed to retrieve connector statistics"))
+	}
+
+	activeConnectors := 0
+	for _, conn := range connectors {
+		if conn.Status == "active" {
+			activeConnectors++
+		}
+	}
+
+	// Get job stats by counting all jobs
+	allJobs, _ := h.jobRepo.FindAll(ctx, bson.M{})
+	totalJobs := int64(len(allJobs))
+	activeJobs := int64(0)
+	for _, job := range allJobs {
+		if job.Status == "active" {
+			activeJobs++
+		}
+	}
+
+	// Get OHLCV stats if repository is available
+	var ohlcvStats *models.OHLCVStats
+	if h.ohlcvRepo != nil {
+		ohlcvStats, _ = h.ohlcvRepo.GetAllStats(ctx)
+	}
+
+	response := fiber.Map{
+		"connectors": fiber.Map{
+			"total":  len(connectors),
+			"active": activeConnectors,
+		},
+		"jobs": fiber.Map{
+			"total":  totalJobs,
+			"active": activeJobs,
+		},
+	}
+
+	if ohlcvStats != nil {
+		response["data"] = fiber.Map{
+			"total_candles":     ohlcvStats.TotalCandles,
+			"total_chunks":      ohlcvStats.TotalChunks,
+			"unique_exchanges":  ohlcvStats.UniqueExchanges,
+			"unique_symbols":    ohlcvStats.UniqueSymbols,
+			"unique_timeframes": ohlcvStats.UniqueTimeframes,
+			"oldest_data":       ohlcvStats.OldestData,
+			"newest_data":       ohlcvStats.NewestData,
+		}
+	}
+
+	return c.JSON(response)
 }
 

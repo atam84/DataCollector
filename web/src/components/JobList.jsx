@@ -8,17 +8,53 @@ import {
   PlusIcon,
   BoltIcon,
   MagnifyingGlassIcon,
-  FunnelIcon
+  FunnelIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline'
 import JobDetails from './JobDetails'
 import JobWizard from './JobWizard'
 
 const API_BASE = '/api/v1'
 
+// Truncate text with ellipsis
+const truncateText = (text, maxLength = 50) => {
+  if (!text) return ''
+  if (text.length <= maxLength) return text
+  return text.substring(0, maxLength) + '...'
+}
+
+// Extract the main error message from a verbose error string
+const extractMainError = (error) => {
+  if (!error) return ''
+
+  // Try to extract the core error message
+  // Look for common patterns like [ccxtError]::[Type]::[exchange {...}]
+  const ccxtMatch = error.match(/\[ccxtError\]::\[(\w+)\]::\[(\w+)\s*({.*?})\]/)
+  if (ccxtMatch) {
+    try {
+      const jsonPart = JSON.parse(ccxtMatch[3])
+      return `${ccxtMatch[1]}: ${jsonPart.msg || jsonPart.message || ccxtMatch[2]}`
+    } catch {
+      return `${ccxtMatch[1]}: ${ccxtMatch[2]}`
+    }
+  }
+
+  // Look for "Error:" prefix
+  const errorMatch = error.match(/^Error:\s*(.+?)(?:\s*Stack:|$)/i)
+  if (errorMatch) {
+    return truncateText(errorMatch[1], 80)
+  }
+
+  // Just return truncated version
+  return truncateText(error, 80)
+}
+
 function JobList({ jobs, connectors, onRefresh, loading }) {
   const [showCreateWizard, setShowCreateWizard] = useState(false)
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [selectedJob, setSelectedJob] = useState(null)
+  const [showErrorModal, setShowErrorModal] = useState(false)
+  const [selectedError, setSelectedError] = useState({ job: null, error: '' })
   const [recalculatingJobs, setRecalculatingJobs] = useState(new Set())
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedConnectors, setSelectedConnectors] = useState([])
@@ -421,15 +457,29 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
                       {job.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-6 py-4">
                     <div className="text-sm text-gray-500">
                       {job.run_state?.last_run_time
                         ? new Date(job.run_state.last_run_time).toLocaleString()
                         : 'Never'}
                     </div>
                     {job.run_state?.last_error && (
-                      <div className="text-xs text-red-500 mt-1">
-                        Error: {job.run_state.last_error}
+                      <div className="flex items-start mt-1 max-w-xs">
+                        <ExclamationTriangleIcon className="w-4 h-4 text-red-500 flex-shrink-0 mr-1 mt-0.5" />
+                        <div>
+                          <span className="text-xs text-red-500">
+                            {extractMainError(job.run_state.last_error)}
+                          </span>
+                          <button
+                            onClick={() => {
+                              setSelectedError({ job: job, error: job.run_state.last_error })
+                              setShowErrorModal(true)
+                            }}
+                            className="block text-xs text-blue-500 hover:text-blue-700 hover:underline mt-0.5"
+                          >
+                            View full error
+                          </button>
+                        </div>
                       </div>
                     )}
                   </td>
@@ -516,6 +566,71 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
 
             <div className="flex-1 overflow-y-auto">
               <JobDetails job={selectedJob} connector={getConnector(selectedJob.connector_exchange_id)} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error Details Modal */}
+      {showErrorModal && selectedError.job && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="p-4 border-b bg-red-50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <ExclamationTriangleIcon className="w-6 h-6 text-red-500 mr-2" />
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">Job Error Details</h3>
+                    <p className="text-sm text-gray-500">
+                      {selectedError.job.symbol} • {selectedError.job.timeframe}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowErrorModal(false)}
+                  className="text-gray-400 hover:text-gray-600 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 overflow-y-auto flex-1">
+              <div className="mb-4">
+                <h4 className="text-sm font-medium text-gray-700 mb-1">Last Run Time</h4>
+                <p className="text-sm text-gray-600">
+                  {selectedError.job.run_state?.last_run_time
+                    ? new Date(selectedError.job.run_state.last_run_time).toLocaleString()
+                    : 'Unknown'}
+                </p>
+              </div>
+
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-1">Full Error Message</h4>
+                <div className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto">
+                  <pre className="text-xs whitespace-pre-wrap break-words font-mono">
+                    {selectedError.error}
+                  </pre>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t bg-gray-50 flex justify-end space-x-2">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(selectedError.error)
+                  alert('Error copied to clipboard!')
+                }}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition"
+              >
+                Copy to Clipboard
+              </button>
+              <button
+                onClick={() => setShowErrorModal(false)}
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
