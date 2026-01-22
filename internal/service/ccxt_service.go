@@ -416,3 +416,125 @@ func getTimeframeDurationMs(timeframe string) int64 {
 		return 60 * 60 * 1000
 	}
 }
+
+// FetchOHLCVRange fetches OHLCV data for a specific time range (used for gap filling)
+func (s *CCXTService) FetchOHLCVRange(
+	ctx context.Context,
+	connector *models.Connector,
+	symbol string,
+	timeframe string,
+	startMs int64,
+	endMs int64,
+) ([]models.Candle, error) {
+	exchangeID := connector.ExchangeID
+
+	// Apply rate limiting before creating adapter
+	if s.rateLimiter != nil {
+		if err := s.rateLimiter.WaitForSlot(ctx, exchangeID); err != nil {
+			return nil, fmt.Errorf("rate limit wait failed: %w", err)
+		}
+	}
+
+	// Create adapter for the exchange
+	adapter, err := exchange.NewCCXTAdapter(exchangeID, true)
+	if err != nil {
+		return nil, fmt.Errorf("exchange %s not yet supported: %w", exchangeID, err)
+	}
+	defer adapter.Close()
+
+	// Load markets
+	if err := adapter.LoadMarkets(); err != nil {
+		return nil, fmt.Errorf("failed to load markets: %w", err)
+	}
+
+	// Get exchange metadata for OHLCV limit
+	metadata, err := exchange.GetExchangeMetadata(exchangeID)
+	batchLimit := 500
+	if err == nil && metadata.OHLCVLimit > 0 {
+		batchLimit = metadata.OHLCVLimit
+	}
+
+	var allCandles []models.Candle
+	tfDuration := getTimeframeDurationMs(timeframe)
+	currentSince := time.UnixMilli(startMs)
+	endTime := time.UnixMilli(endMs)
+
+	log.Printf("[CCXT] Fetching range %s to %s for %s %s %s",
+		currentSince.Format("2006-01-02 15:04:05"),
+		endTime.Format("2006-01-02 15:04:05"),
+		exchangeID, symbol, timeframe)
+
+	maxIterations := 100
+	for i := 0; i < maxIterations; i++ {
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			if len(allCandles) > 0 {
+				return allCandles, nil
+			}
+			return nil, ctx.Err()
+		default:
+		}
+
+		// Apply rate limiting
+		if s.rateLimiter != nil {
+			if err := s.rateLimiter.WaitForSlot(ctx, exchangeID); err != nil {
+				if len(allCandles) > 0 {
+					return allCandles, nil
+				}
+				return nil, fmt.Errorf("rate limit wait failed: %w", err)
+			}
+		}
+
+		candles, err := adapter.FetchOHLCV(symbol, timeframe, &currentSince, batchLimit)
+		if err != nil {
+			if len(allCandles) > 0 {
+				return allCandles, nil
+			}
+			return nil, fmt.Errorf("failed to fetch OHLCV: %w", err)
+		}
+
+		if len(candles) == 0 {
+			break
+		}
+
+		// Filter candles within our range and append
+		for _, candle := range candles {
+			candleTime := time.UnixMilli(candle.Timestamp)
+			if candleTime.After(endTime) {
+				// We've passed the end time, stop
+				goto done
+			}
+			allCandles = append(allCandles, candle)
+		}
+
+		// Move to next batch
+		lastCandle := candles[len(candles)-1]
+		lastTimestamp := time.UnixMilli(lastCandle.Timestamp)
+
+		if lastTimestamp.After(endTime) || lastTimestamp.Equal(endTime) {
+			break
+		}
+
+		if len(candles) < batchLimit {
+			break
+		}
+
+		currentSince = lastTimestamp.Add(time.Duration(tfDuration) * time.Millisecond)
+
+		if s.rateLimiter == nil {
+			time.Sleep(1 * time.Second)
+		}
+	}
+
+done:
+	log.Printf("[CCXT] Range fetch complete: %d candles", len(allCandles))
+
+	// Reverse order so newest candles are at index 0
+	reversed := make([]models.Candle, len(allCandles))
+	for i, candle := range allCandles {
+		reversed[len(allCandles)-1-i] = candle
+	}
+
+	return reversed, nil
+}

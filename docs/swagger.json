@@ -72,7 +72,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/models.ConnectorCreateRequest"
+                            "$ref": "#/definitions/github_com_yourusername_datacollector_internal_models.ConnectorCreateRequest"
                         }
                     }
                 ],
@@ -635,7 +635,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/models.JobCreateRequest"
+                            "$ref": "#/definitions/github_com_yourusername_datacollector_internal_models.JobCreateRequest"
                         }
                     }
                 ],
@@ -696,7 +696,7 @@
                                 "jobs": {
                                     "type": "array",
                                     "items": {
-                                        "$ref": "#/definitions/models.JobCreateRequest"
+                                        "$ref": "#/definitions/github_com_yourusername_datacollector_internal_models.JobCreateRequest"
                                     }
                                 }
                             }
@@ -962,7 +962,7 @@
         }
     },
     "definitions": {
-        "models.ConnectorCreateRequest": {
+        "github_com_yourusername_datacollector_internal_models.ConnectorCreateRequest": {
             "type": "object",
             "required": [
                 "display_name",
@@ -1001,7 +1001,7 @@
                 }
             }
         },
-        "models.JobCreateRequest": {
+        "github_com_yourusername_datacollector_internal_models.JobCreateRequest": {
             "type": "object",
             "required": [
                 "connector_exchange_id",

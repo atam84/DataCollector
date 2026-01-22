@@ -114,17 +114,26 @@ func main() {
 	alertRepo := repository.NewAlertRepository(db)
 	retentionRepo := repository.NewRetentionRepository(db)
 	indicatorConfigRepo := repository.NewIndicatorConfigRepository(db)
+	qualityRepo := repository.NewQualityRepository(db)
 
 	// Initialize services
+	rateLimiter := service.NewRateLimiter(connectorRepo)
+	ccxtService := service.NewCCXTServiceWithRateLimiter(rateLimiter)
 	jobExecutor := service.NewJobExecutor(jobRepo, connectorRepo, ohlcvRepo, cfg)
 	jobScheduler := service.NewJobScheduler(jobRepo, jobExecutor)
 	recalcService := service.NewRecalculatorService(jobRepo, connectorRepo, ohlcvRepo)
 	alertService := service.NewAlertService(alertRepo, jobRepo, connectorRepo)
 	retentionService := service.NewRetentionService(retentionRepo)
+	qualityService := service.NewQualityService(qualityRepo, ohlcvRepo, jobRepo, ccxtService, connectorRepo, rateLimiter)
 
 	// Start automatic job scheduler
 	jobScheduler.Start()
 	defer jobScheduler.Stop()
+
+	// Start quality scheduler (runs every 1 hour)
+	qualityScheduler := service.NewQualityScheduler(qualityService, 1*time.Hour)
+	qualityScheduler.Start()
+	defer qualityScheduler.Stop()
 
 	// Initialize handlers
 	healthHandler := handlers.NewHealthHandler(db)
@@ -134,6 +143,7 @@ func main() {
 	indicatorConfigHandler := handlers.NewIndicatorConfigHandler(indicatorConfigRepo)
 	alertHandler := handlers.NewAlertHandler(alertRepo, alertService)
 	retentionHandler := handlers.NewRetentionHandler(retentionRepo, retentionService)
+	qualityHandler := handlers.NewQualityHandler(qualityService, jobRepo)
 
 	// Health routes
 	api.Get("/health", healthHandler.GetHealth)
@@ -187,10 +197,16 @@ func main() {
 	api.Put("/jobs/:id/dependencies", jobHandler.SetJobDependencies)
 	api.Get("/jobs/:id/dependents", jobHandler.GetJobDependents)
 
-	// Data quality routes
-	api.Get("/jobs/:id/quality", jobHandler.GetJobDataQuality)
-	api.Get("/quality", jobHandler.GetAllJobsDataQuality)
-	api.Get("/quality/summary", jobHandler.GetDataQualitySummary)
+	// Data quality routes (cached results)
+	api.Get("/jobs/:id/quality", qualityHandler.GetJobQuality)
+	api.Post("/jobs/:id/quality/refresh", qualityHandler.RefreshJobQuality)
+	api.Post("/jobs/:id/quality/fill-gaps", qualityHandler.FillJobGaps)
+	api.Get("/quality", qualityHandler.GetCachedResults)
+	api.Get("/quality/summary", qualityHandler.GetCachedSummary)
+	api.Post("/quality/check", qualityHandler.StartQualityCheck)
+	api.Get("/quality/checks", qualityHandler.GetRecentCheckJobs)
+	api.Get("/quality/checks/active", qualityHandler.GetActiveCheckJobs)
+	api.Get("/quality/checks/:id", qualityHandler.GetCheckJobStatus)
 
 	// Connector-specific job routes
 	api.Get("/connectors/:exchangeId/jobs", jobHandler.GetJobsByConnector)

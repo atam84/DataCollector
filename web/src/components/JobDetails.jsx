@@ -2,17 +2,37 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 import {
   ArrowDownTrayIcon,
+  ArrowPathIcon,
   ChartBarIcon,
   TableCellsIcon,
   InformationCircleIcon,
   ChartBarSquareIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
-  ClockIcon
+  ClockIcon,
+  WrenchScrewdriverIcon,
+  CalendarIcon
 } from '@heroicons/react/24/outline'
 import CandlestickChart from './CandlestickChart'
 
 const API_BASE = '/api/v1'
+
+// Format relative time
+const formatTimeAgo = (dateString) => {
+  if (!dateString) return 'Never'
+  const date = new Date(dateString)
+  const now = new Date()
+  const diffMs = now - date
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMins / 60)
+  const diffDays = Math.floor(diffHours / 24)
+
+  if (diffMins < 1) return 'Just now'
+  if (diffMins < 60) return `${diffMins}m ago`
+  if (diffHours < 24) return `${diffHours}h ago`
+  if (diffDays < 7) return `${diffDays}d ago`
+  return date.toLocaleDateString()
+}
 
 function JobDetails({ job, connector }) {
   const [activeTab, setActiveTab] = useState('overview')
@@ -29,6 +49,9 @@ function JobDetails({ job, connector }) {
     totalPages: 0
   })
   const [exporting, setExporting] = useState(false)
+  const [refreshingQuality, setRefreshingQuality] = useState(false)
+  const [fillingGaps, setFillingGaps] = useState(false)
+  const [gapFillResult, setGapFillResult] = useState(null)
 
   useEffect(() => {
     if (activeTab === 'data') {
@@ -50,6 +73,35 @@ function JobDetails({ job, connector }) {
       setQualityData(null)
     } finally {
       setQualityLoading(false)
+    }
+  }
+
+  const refreshQuality = async () => {
+    setRefreshingQuality(true)
+    try {
+      const response = await axios.post(`${API_BASE}/jobs/${job.id}/quality/refresh`)
+      setQualityData(response.data.data)
+    } catch (err) {
+      alert('Failed to refresh quality: ' + (err.response?.data?.error || err.message))
+    } finally {
+      setRefreshingQuality(false)
+    }
+  }
+
+  const fillGaps = async (fillAll = true) => {
+    setFillingGaps(true)
+    setGapFillResult(null)
+    try {
+      const response = await axios.post(`${API_BASE}/jobs/${job.id}/quality/fill-gaps`, {
+        fill_all: fillAll
+      })
+      setGapFillResult(response.data.data)
+      // Refresh quality after filling gaps
+      await fetchQualityData()
+    } catch (err) {
+      alert('Failed to fill gaps: ' + (err.response?.data?.error || err.message))
+    } finally {
+      setFillingGaps(false)
     }
   }
 
@@ -457,11 +509,21 @@ function JobDetails({ job, connector }) {
             </div>
           ) : !qualityData ? (
             <div className="text-center py-12 text-gray-500">
-              No quality data available. Execute the job to collect data first.
+              <ChartBarSquareIcon className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+              <p>No quality data available.</p>
+              <p className="text-sm mt-1">Execute the job to collect data first.</p>
+              <button
+                onClick={refreshQuality}
+                disabled={refreshingQuality}
+                className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+              >
+                <ArrowPathIcon className={`w-4 h-4 inline mr-2 ${refreshingQuality ? 'animate-spin' : ''}`} />
+                Analyze Quality
+              </button>
             </div>
           ) : (
             <div className="space-y-6">
-              {/* Quality Status Banner */}
+              {/* Quality Status Banner with Actions */}
               <div className={`p-6 rounded-lg border-2 ${
                 qualityData.quality_status === 'excellent' ? 'bg-green-50 border-green-300' :
                 qualityData.quality_status === 'good' ? 'bg-blue-50 border-blue-300' :
@@ -479,16 +541,75 @@ function JobDetails({ job, connector }) {
                       <p className="text-sm text-gray-600">
                         {qualityData.completeness_score?.toFixed(1)}% complete with {qualityData.gaps_detected || 0} gaps detected
                       </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        <ClockIcon className="w-3 h-3 inline mr-1" />
+                        Last checked: {qualityData.checked_at ? formatTimeAgo(qualityData.checked_at) : 'Never'}
+                      </p>
                     </div>
                   </div>
-                  <div className={`px-4 py-2 rounded-lg font-semibold ${
-                    qualityData.data_freshness === 'fresh' ? 'bg-green-200 text-green-800' :
-                    qualityData.data_freshness === 'stale' ? 'bg-yellow-200 text-yellow-800' :
-                    'bg-red-200 text-red-800'
-                  }`}>
-                    <ClockIcon className="w-4 h-4 inline mr-1" />
-                    {qualityData.data_freshness === 'fresh' ? 'Fresh Data' :
-                     qualityData.data_freshness === 'stale' ? 'Stale Data' : 'Very Stale'}
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={refreshQuality}
+                      disabled={refreshingQuality}
+                      className="px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition disabled:opacity-50 flex items-center"
+                      title="Refresh quality analysis"
+                    >
+                      <ArrowPathIcon className={`w-4 h-4 mr-1 ${refreshingQuality ? 'animate-spin' : ''}`} />
+                      Refresh
+                    </button>
+                    <div className={`px-4 py-2 rounded-lg font-semibold ${
+                      qualityData.data_freshness === 'fresh' ? 'bg-green-200 text-green-800' :
+                      qualityData.data_freshness === 'stale' ? 'bg-yellow-200 text-yellow-800' :
+                      'bg-red-200 text-red-800'
+                    }`}>
+                      <ClockIcon className="w-4 h-4 inline mr-1" />
+                      {qualityData.data_freshness === 'fresh' ? 'Fresh Data' :
+                       qualityData.data_freshness === 'stale' ? 'Stale Data' : 'Very Stale'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Data Period Info */}
+              <div className="bg-indigo-50 rounded-lg p-6 border border-indigo-200">
+                <h4 className="text-lg font-semibold text-indigo-900 mb-4 flex items-center">
+                  <CalendarIcon className="w-5 h-5 mr-2" />
+                  Data Period
+                </h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <span className="text-sm font-medium text-indigo-700">From</span>
+                    <p className="text-base text-indigo-900 mt-1">
+                      {qualityData.data_period_start ? new Date(qualityData.data_period_start).toLocaleString() : 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-indigo-700">To</span>
+                    <p className="text-base text-indigo-900 mt-1">
+                      {qualityData.data_period_end ? new Date(qualityData.data_period_end).toLocaleString() : 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-indigo-700">Coverage</span>
+                    <p className="text-base text-indigo-900 mt-1">
+                      {qualityData.data_period_days || 0} days
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-indigo-700">Data Age</span>
+                    <p className="text-base text-indigo-900 mt-1">
+                      {qualityData.data_age_days !== undefined ? (
+                        qualityData.data_age_days === 0 ? 'Today' :
+                        qualityData.data_age_days === 1 ? '1 day old' :
+                        `${qualityData.data_age_days} days old`
+                      ) : (
+                        qualityData.freshness_minutes ?
+                          qualityData.freshness_minutes < 60 ? `${qualityData.freshness_minutes} minutes ago` :
+                          qualityData.freshness_minutes < 1440 ? `${Math.round(qualityData.freshness_minutes / 60)} hours ago` :
+                          `${Math.round(qualityData.freshness_minutes / 1440)} days ago`
+                        : 'N/A'
+                      )}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -545,46 +666,85 @@ function JobDetails({ job, connector }) {
                 </div>
               </div>
 
-              {/* Date Range */}
-              <div className="bg-gray-50 rounded-lg p-6">
-                <h4 className="text-lg font-semibold text-gray-900 mb-4">Data Range</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Oldest Data</span>
-                    <p className="text-base text-gray-900 mt-1">
-                      {qualityData.oldest_candle ? new Date(qualityData.oldest_candle).toLocaleString() : 'N/A'}
-                    </p>
+              {/* Gap Fill Result */}
+              {gapFillResult && (
+                <div className="bg-green-50 rounded-lg p-6 border border-green-200">
+                  <h4 className="text-lg font-semibold text-green-900 mb-4 flex items-center">
+                    <CheckCircleIcon className="w-5 h-5 mr-2" />
+                    Gap Fill Result
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <span className="text-sm font-medium text-green-700">Gaps Attempted</span>
+                      <p className="text-xl font-bold text-green-900">{gapFillResult.gaps_attempted || 0}</p>
+                    </div>
+                    <div>
+                      <span className="text-sm font-medium text-green-700">Gaps Filled</span>
+                      <p className="text-xl font-bold text-green-900">{gapFillResult.gaps_filled || 0}</p>
+                    </div>
+                    <div>
+                      <span className="text-sm font-medium text-green-700">Candles Fetched</span>
+                      <p className="text-xl font-bold text-green-900">{gapFillResult.candles_fetched?.toLocaleString() || 0}</p>
+                    </div>
+                    <div>
+                      <span className="text-sm font-medium text-green-700">Duration</span>
+                      <p className="text-xl font-bold text-green-900">
+                        {gapFillResult.started_at && gapFillResult.completed_at ?
+                          `${Math.round((new Date(gapFillResult.completed_at) - new Date(gapFillResult.started_at)) / 1000)}s` :
+                          'N/A'}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Newest Data</span>
-                    <p className="text-base text-gray-900 mt-1">
-                      {qualityData.newest_candle ? new Date(qualityData.newest_candle).toLocaleString() : 'N/A'}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Data Age</span>
-                    <p className="text-base text-gray-900 mt-1">
-                      {qualityData.freshness_minutes ?
-                        qualityData.freshness_minutes < 60 ? `${qualityData.freshness_minutes} minutes ago` :
-                        qualityData.freshness_minutes < 1440 ? `${Math.round(qualityData.freshness_minutes / 60)} hours ago` :
-                        `${Math.round(qualityData.freshness_minutes / 1440)} days ago`
-                        : 'N/A'}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-sm font-medium text-gray-500">Timeframe</span>
-                    <p className="text-base text-gray-900 mt-1">{job.timeframe}</p>
-                  </div>
+                  {gapFillResult.errors && gapFillResult.errors.length > 0 && (
+                    <div className="mt-4">
+                      <p className="text-sm font-medium text-orange-700">Warnings:</p>
+                      <ul className="text-sm text-orange-600 list-disc list-inside">
+                        {gapFillResult.errors.slice(0, 5).map((err, idx) => (
+                          <li key={idx}>{err}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
 
-              {/* Gaps Detail */}
+              {/* Gaps Detail with Fill Action */}
               {qualityData.gaps && qualityData.gaps.length > 0 && (
                 <div className="bg-orange-50 rounded-lg p-6 border border-orange-200">
-                  <h4 className="text-lg font-semibold text-orange-900 mb-4">
-                    <ExclamationTriangleIcon className="w-5 h-5 inline mr-2" />
-                    Detected Gaps ({qualityData.gaps.length})
-                  </h4>
+                  <div className="flex justify-between items-center mb-4">
+                    <h4 className="text-lg font-semibold text-orange-900 flex items-center">
+                      <ExclamationTriangleIcon className="w-5 h-5 mr-2" />
+                      Detected Gaps ({qualityData.gaps.length})
+                    </h4>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => fillGaps(false)}
+                        disabled={fillingGaps}
+                        className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 transition disabled:opacity-50 flex items-center"
+                        title="Fill first 5 gaps"
+                      >
+                        <WrenchScrewdriverIcon className={`w-4 h-4 mr-2 ${fillingGaps ? 'animate-spin' : ''}`} />
+                        Fill First 5 Gaps
+                      </button>
+                      <button
+                        onClick={() => fillGaps(true)}
+                        disabled={fillingGaps}
+                        className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition disabled:opacity-50 flex items-center"
+                        title="Fill all gaps (may take a while)"
+                      >
+                        <WrenchScrewdriverIcon className={`w-4 h-4 mr-2 ${fillingGaps ? 'animate-spin' : ''}`} />
+                        Fill All Gaps
+                      </button>
+                    </div>
+                  </div>
+
+                  {fillingGaps && (
+                    <div className="mb-4 p-3 bg-orange-100 rounded-lg flex items-center">
+                      <ArrowPathIcon className="w-5 h-5 animate-spin mr-2 text-orange-700" />
+                      <span className="text-orange-800">Fetching missing data from exchange... This may take a while.</span>
+                    </div>
+                  )}
+
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-orange-200">
                       <thead>
@@ -622,6 +782,15 @@ function JobDetails({ job, connector }) {
                       </p>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* No Gaps Message */}
+              {(!qualityData.gaps || qualityData.gaps.length === 0) && qualityData.quality_status && (
+                <div className="bg-green-50 rounded-lg p-6 border border-green-200 text-center">
+                  <CheckCircleIcon className="w-12 h-12 mx-auto text-green-500 mb-2" />
+                  <h4 className="text-lg font-semibold text-green-900">No Data Gaps Detected</h4>
+                  <p className="text-sm text-green-700">Your data is continuous with no missing candles.</p>
                 </div>
               )}
             </div>
