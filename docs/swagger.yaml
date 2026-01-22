@@ -577,6 +577,44 @@ paths:
       summary: Execute a job manually
       tags:
       - Jobs
+  /jobs/{id}/quality:
+    get:
+      consumes:
+      - application/json
+      description: Analyzes data quality for a specific job including gaps, missing
+        candles, and freshness
+      parameters:
+      - description: Job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Data quality metrics
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid job ID
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Job not found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get job data quality
+      tags:
+      - Jobs
   /jobs/batch:
     post:
       consumes:
@@ -611,6 +649,63 @@ paths:
       summary: Create multiple jobs
       tags:
       - Jobs
+  /quality:
+    get:
+      consumes:
+      - application/json
+      description: Returns data quality metrics for all jobs with optional filtering
+      parameters:
+      - description: Filter by exchange ID
+        in: query
+        name: exchange_id
+        type: string
+      - description: Filter by quality status (excellent, good, fair, poor)
+        in: query
+        name: quality_status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Data quality metrics for all jobs
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get all jobs data quality
+      tags:
+      - Quality
+  /quality/summary:
+    get:
+      consumes:
+      - application/json
+      description: Returns aggregated data quality metrics for all jobs or filtered
+        by exchange
+      parameters:
+      - description: Filter by exchange ID
+        in: query
+        name: exchange_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Data quality summary
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get data quality summary
+      tags:
+      - Quality
 schemes:
 - http
 - https

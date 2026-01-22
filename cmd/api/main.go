@@ -187,6 +187,11 @@ func main() {
 	api.Put("/jobs/:id/dependencies", jobHandler.SetJobDependencies)
 	api.Get("/jobs/:id/dependents", jobHandler.GetJobDependents)
 
+	// Data quality routes
+	api.Get("/jobs/:id/quality", jobHandler.GetJobDataQuality)
+	api.Get("/quality", jobHandler.GetAllJobsDataQuality)
+	api.Get("/quality/summary", jobHandler.GetDataQualitySummary)
+
 	// Connector-specific job routes
 	api.Get("/connectors/:exchangeId/jobs", jobHandler.GetJobsByConnector)
 

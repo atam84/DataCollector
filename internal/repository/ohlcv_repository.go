@@ -714,3 +714,211 @@ func (r *OHLCVRepository) FindWithPagination(ctx context.Context, filter bson.M,
 
 	return candles[skip:end], nil
 }
+
+// AnalyzeDataQuality analyzes the data quality for a specific job's data
+func (r *OHLCVRepository) AnalyzeDataQuality(ctx context.Context, exchangeID, symbol, timeframe string) (*models.DataQuality, error) {
+	// Get all candles
+	doc, err := r.FindByJob(ctx, exchangeID, symbol, timeframe)
+	if err != nil {
+		return nil, err
+	}
+
+	quality := &models.DataQuality{
+		ExchangeID: exchangeID,
+		Symbol:     symbol,
+		Timeframe:  timeframe,
+	}
+
+	if doc == nil || len(doc.Candles) == 0 {
+		quality.QualityStatus = "poor"
+		quality.DataFreshness = "no_data"
+		return quality, nil
+	}
+
+	quality.TotalCandles = int64(len(doc.Candles))
+
+	// Get candles sorted by timestamp ascending for gap analysis
+	candles := make([]models.Candle, len(doc.Candles))
+	copy(candles, doc.Candles)
+	sortCandlesAsc(candles)
+
+	// Find oldest and newest candles
+	quality.OldestCandle = time.UnixMilli(candles[0].Timestamp)
+	quality.NewestCandle = time.UnixMilli(candles[len(candles)-1].Timestamp)
+
+	// Calculate expected candles based on timeframe and date range
+	timeframeDuration := models.GetTimeframeDurationMinutes(timeframe)
+	totalDuration := quality.NewestCandle.Sub(quality.OldestCandle).Minutes()
+	quality.ExpectedCandles = int64(totalDuration/float64(timeframeDuration)) + 1
+
+	// Calculate missing candles
+	quality.MissingCandles = quality.ExpectedCandles - quality.TotalCandles
+	if quality.MissingCandles < 0 {
+		quality.MissingCandles = 0 // More candles than expected (possible duplicates or overlap)
+	}
+
+	// Calculate completeness score
+	if quality.ExpectedCandles > 0 {
+		quality.CompletenessScore = (float64(quality.TotalCandles) / float64(quality.ExpectedCandles)) * 100
+		if quality.CompletenessScore > 100 {
+			quality.CompletenessScore = 100
+		}
+	}
+
+	// Calculate data freshness
+	freshnessMinutes := time.Since(quality.NewestCandle).Minutes()
+	quality.FreshnessMinutes = int64(freshnessMinutes)
+
+	// Freshness based on timeframe
+	expectedFreshness := float64(timeframeDuration) * 2 // Allow 2x timeframe for "fresh"
+	if freshnessMinutes <= expectedFreshness {
+		quality.DataFreshness = "fresh"
+	} else if freshnessMinutes <= expectedFreshness*5 {
+		quality.DataFreshness = "stale"
+	} else {
+		quality.DataFreshness = "very_stale"
+	}
+
+	// Detect gaps in the data
+	quality.Gaps = detectGaps(candles, timeframeDuration)
+	quality.GapsDetected = len(quality.Gaps)
+
+	// Determine overall quality status
+	quality.QualityStatus = calculateQualityStatus(quality.CompletenessScore, quality.GapsDetected, quality.DataFreshness)
+
+	return quality, nil
+}
+
+// sortCandlesAsc sorts candles by timestamp in ascending order (oldest first)
+func sortCandlesAsc(candles []models.Candle) {
+	for i := 0; i < len(candles)-1; i++ {
+		for j := i + 1; j < len(candles); j++ {
+			if candles[i].Timestamp > candles[j].Timestamp {
+				candles[i], candles[j] = candles[j], candles[i]
+			}
+		}
+	}
+}
+
+// detectGaps finds gaps in the candle data
+func detectGaps(candles []models.Candle, timeframeDurationMinutes int64) []models.DataGap {
+	if len(candles) < 2 {
+		return nil
+	}
+
+	var gaps []models.DataGap
+	expectedGapMs := timeframeDurationMinutes * 60 * 1000 // Convert minutes to milliseconds
+	tolerance := expectedGapMs + (expectedGapMs / 10)     // Allow 10% tolerance
+
+	for i := 1; i < len(candles); i++ {
+		actualGap := candles[i].Timestamp - candles[i-1].Timestamp
+
+		// If gap is more than expected (with tolerance), we have missing candles
+		if actualGap > tolerance {
+			missingCount := int((actualGap / expectedGapMs) - 1)
+			if missingCount > 0 {
+				gap := models.DataGap{
+					StartTime:       time.UnixMilli(candles[i-1].Timestamp),
+					EndTime:         time.UnixMilli(candles[i].Timestamp),
+					MissingCandles:  missingCount,
+					DurationMinutes: actualGap / (60 * 1000),
+				}
+				gaps = append(gaps, gap)
+			}
+		}
+	}
+
+	return gaps
+}
+
+// calculateQualityStatus determines the overall quality status
+func calculateQualityStatus(completeness float64, gapsCount int, freshness string) string {
+	if completeness >= 99 && gapsCount == 0 && freshness == "fresh" {
+		return "excellent"
+	}
+	if completeness >= 95 && gapsCount <= 2 && freshness != "very_stale" {
+		return "good"
+	}
+	if completeness >= 80 && gapsCount <= 5 {
+		return "fair"
+	}
+	return "poor"
+}
+
+// GetDataQualitySummary returns aggregated data quality metrics for an exchange
+func (r *OHLCVRepository) GetDataQualitySummary(ctx context.Context, exchangeID string) (*models.DataQualitySummary, error) {
+	filter := bson.M{}
+	if exchangeID != "" {
+		filter["exchange_id"] = exchangeID
+	}
+
+	// Get all unique combinations of exchange/symbol/timeframe
+	pipeline := []bson.M{
+		{"$match": filter},
+		{
+			"$group": bson.M{
+				"_id": bson.M{
+					"exchange_id": "$exchange_id",
+					"symbol":      "$symbol",
+					"timeframe":   "$timeframe",
+				},
+			},
+		},
+	}
+
+	cursor, err := r.chunksCollection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, fmt.Errorf("failed to aggregate jobs: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var jobs []bson.M
+	if err := cursor.All(ctx, &jobs); err != nil {
+		return nil, fmt.Errorf("failed to decode jobs: %w", err)
+	}
+
+	summary := &models.DataQualitySummary{
+		TotalJobs: len(jobs),
+	}
+
+	var totalCompleteness float64
+
+	for _, job := range jobs {
+		id := job["_id"].(bson.M)
+		exchangeID := id["exchange_id"].(string)
+		symbol := id["symbol"].(string)
+		timeframe := id["timeframe"].(string)
+
+		quality, err := r.AnalyzeDataQuality(ctx, exchangeID, symbol, timeframe)
+		if err != nil {
+			continue
+		}
+
+		totalCompleteness += quality.CompletenessScore
+		summary.TotalMissingCandles += quality.MissingCandles
+		summary.TotalGaps += quality.GapsDetected
+
+		switch quality.QualityStatus {
+		case "excellent":
+			summary.ExcellentQuality++
+		case "good":
+			summary.GoodQuality++
+		case "fair":
+			summary.FairQuality++
+		case "poor":
+			summary.PoorQuality++
+		}
+
+		if quality.DataFreshness == "fresh" {
+			summary.FreshDataJobs++
+		} else {
+			summary.StaleDataJobs++
+		}
+	}
+
+	if summary.TotalJobs > 0 {
+		summary.AverageCompleteness = totalCompleteness / float64(summary.TotalJobs)
+	}
+
+	return summary, nil
+}

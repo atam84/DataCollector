@@ -919,6 +919,123 @@ func (h *JobHandler) GetJobDependents(c *fiber.Ctx) error {
 	})
 }
 
+// GetJobDataQuality retrieves data quality metrics for a job
+// @Summary Get job data quality
+// @Description Analyzes data quality for a specific job including gaps, missing candles, and freshness
+// @Tags Jobs
+// @Accept json
+// @Produce json
+// @Param id path string true "Job ID"
+// @Success 200 {object} map[string]interface{} "Data quality metrics"
+// @Failure 400 {object} map[string]interface{} "Invalid job ID"
+// @Failure 404 {object} map[string]interface{} "Job not found"
+// @Failure 500 {object} map[string]interface{} "Internal server error"
+// @Router /jobs/{id}/quality [get]
+func (h *JobHandler) GetJobDataQuality(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	id := c.Params("id")
+
+	// Get the job to find exchange, symbol, timeframe
+	job, err := h.jobRepo.FindByID(ctx, id)
+	if err != nil {
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid job ID format"))
+		}
+		return errors.SendError(c, errors.NotFound("Job"))
+	}
+
+	// Analyze data quality
+	quality, err := h.ohlcvRepo.AnalyzeDataQuality(ctx, job.ConnectorExchangeID, job.Symbol, job.Timeframe)
+	if err != nil {
+		return errors.SendError(c, errors.InternalError("Failed to analyze data quality: "+err.Error()))
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data":    quality,
+	})
+}
+
+// GetDataQualitySummary retrieves aggregated data quality metrics
+// @Summary Get data quality summary
+// @Description Returns aggregated data quality metrics for all jobs or filtered by exchange
+// @Tags Quality
+// @Accept json
+// @Produce json
+// @Param exchange_id query string false "Filter by exchange ID"
+// @Success 200 {object} map[string]interface{} "Data quality summary"
+// @Failure 500 {object} map[string]interface{} "Internal server error"
+// @Router /quality/summary [get]
+func (h *JobHandler) GetDataQualitySummary(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	exchangeID := c.Query("exchange_id")
+
+	summary, err := h.ohlcvRepo.GetDataQualitySummary(ctx, exchangeID)
+	if err != nil {
+		return errors.SendError(c, errors.InternalError("Failed to get data quality summary: "+err.Error()))
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data":    summary,
+	})
+}
+
+// GetAllJobsDataQuality retrieves data quality metrics for all jobs
+// @Summary Get all jobs data quality
+// @Description Returns data quality metrics for all jobs with optional filtering
+// @Tags Quality
+// @Accept json
+// @Produce json
+// @Param exchange_id query string false "Filter by exchange ID"
+// @Param quality_status query string false "Filter by quality status (excellent, good, fair, poor)"
+// @Success 200 {object} map[string]interface{} "Data quality metrics for all jobs"
+// @Failure 500 {object} map[string]interface{} "Internal server error"
+// @Router /quality [get]
+func (h *JobHandler) GetAllJobsDataQuality(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	exchangeID := c.Query("exchange_id")
+	qualityStatusFilter := c.Query("quality_status")
+
+	// Get all jobs
+	filter := bson.M{}
+	if exchangeID != "" {
+		filter["connector_exchange_id"] = exchangeID
+	}
+
+	jobs, err := h.jobRepo.FindAll(ctx, filter)
+	if err != nil {
+		return errors.SendError(c, errors.InternalError("Failed to get jobs"))
+	}
+
+	var qualities []*models.DataQuality
+	for _, job := range jobs {
+		quality, err := h.ohlcvRepo.AnalyzeDataQuality(ctx, job.ConnectorExchangeID, job.Symbol, job.Timeframe)
+		if err != nil {
+			continue
+		}
+
+		// Apply quality status filter if specified
+		if qualityStatusFilter != "" && quality.QualityStatus != qualityStatusFilter {
+			continue
+		}
+
+		qualities = append(qualities, quality)
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data":    qualities,
+		"count":   len(qualities),
+	})
+}
+
 // Helper function
 func formatFloat(f float64) string {
 	return fmt.Sprintf("%.8f", f)

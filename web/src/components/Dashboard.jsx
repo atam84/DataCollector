@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react'
 import axios from 'axios'
-import { ArrowPathIcon, BoltIcon, ExclamationTriangleIcon, ChartBarIcon, CircleStackIcon, HeartIcon, CheckCircleIcon, XCircleIcon, ClockIcon } from '@heroicons/react/24/outline'
+import { ArrowPathIcon, BoltIcon, ExclamationTriangleIcon, ChartBarIcon, CircleStackIcon, HeartIcon, CheckCircleIcon, XCircleIcon, ClockIcon, ChartBarSquareIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline'
 
 const API_BASE = '/api/v1'
 
@@ -20,6 +20,8 @@ function Dashboard({ connectors, jobs, onRefresh, loading }) {
   const [loadingStats, setLoadingStats] = useState(false)
   const [healthData, setHealthData] = useState(null)
   const [loadingHealth, setLoadingHealth] = useState(false)
+  const [qualityData, setQualityData] = useState(null)
+  const [loadingQuality, setLoadingQuality] = useState(false)
 
   // Fetch global stats
   useEffect(() => {
@@ -52,6 +54,24 @@ function Dashboard({ connectors, jobs, onRefresh, loading }) {
     }
     fetchHealth()
   }, [connectors]) // Refresh when connectors change
+
+  // Fetch data quality summary
+  useEffect(() => {
+    const fetchQuality = async () => {
+      if (jobs.length === 0) return
+      setLoadingQuality(true)
+      try {
+        const response = await axios.get(`${API_BASE}/quality/summary`)
+        setQualityData(response.data)
+      } catch (err) {
+        console.error('Failed to fetch quality data:', err)
+      } finally {
+        setLoadingQuality(false)
+      }
+    }
+    fetchQuality()
+  }, [jobs]) // Refresh when jobs change
+
   const stats = useMemo(() => {
     const activeConnectors = connectors.filter(c => c.status === 'active').length
     const disabledConnectors = connectors.filter(c => c.status === 'disabled').length
@@ -419,6 +439,139 @@ function Dashboard({ connectors, jobs, onRefresh, loading }) {
               </div>
             ) : (
               <p className="text-gray-500 text-center py-4">No health data available</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Data Quality Section */}
+      {jobs.length > 0 && (
+        <div className="bg-white rounded-lg shadow mb-8">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                <ChartBarSquareIcon className="w-5 h-5 mr-2 text-indigo-600" />
+                Data Quality Monitoring
+              </h3>
+              {qualityData?.data && (
+                <div className="flex items-center space-x-4 text-sm">
+                  <span className="flex items-center text-green-600">
+                    <CheckCircleIcon className="w-4 h-4 mr-1" />
+                    {qualityData.data.excellent_quality + qualityData.data.good_quality} good
+                  </span>
+                  {qualityData.data.fair_quality > 0 && (
+                    <span className="flex items-center text-yellow-600">
+                      <ExclamationTriangleIcon className="w-4 h-4 mr-1" />
+                      {qualityData.data.fair_quality} fair
+                    </span>
+                  )}
+                  {qualityData.data.poor_quality > 0 && (
+                    <span className="flex items-center text-red-600">
+                      <XCircleIcon className="w-4 h-4 mr-1" />
+                      {qualityData.data.poor_quality} poor
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="p-6">
+            {loadingQuality ? (
+              <div className="text-center py-4">
+                <ArrowPathIcon className="w-6 h-6 animate-spin mx-auto text-gray-400" />
+                <p className="text-sm text-gray-500 mt-2">Analyzing data quality...</p>
+              </div>
+            ) : qualityData?.data ? (
+              <>
+                {/* Summary Stats */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                  <div className="bg-indigo-50 rounded-lg p-4 text-center">
+                    <p className="text-2xl font-bold text-indigo-600">
+                      {qualityData.data.average_completeness?.toFixed(1) || 0}%
+                    </p>
+                    <p className="text-xs text-gray-600">Avg Completeness</p>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-4 text-center">
+                    <p className="text-2xl font-bold text-green-600">
+                      {qualityData.data.fresh_data_jobs || 0}
+                    </p>
+                    <p className="text-xs text-gray-600">Fresh Data Jobs</p>
+                  </div>
+                  <div className="bg-orange-50 rounded-lg p-4 text-center">
+                    <p className="text-2xl font-bold text-orange-600">
+                      {formatNumber(qualityData.data.total_gaps || 0)}
+                    </p>
+                    <p className="text-xs text-gray-600">Total Gaps</p>
+                  </div>
+                  <div className="bg-red-50 rounded-lg p-4 text-center">
+                    <p className="text-2xl font-bold text-red-600">
+                      {formatNumber(qualityData.data.total_missing_candles || 0)}
+                    </p>
+                    <p className="text-xs text-gray-600">Missing Candles</p>
+                  </div>
+                </div>
+
+                {/* Quality Distribution */}
+                <div className="border border-gray-200 rounded-lg p-4">
+                  <h4 className="text-sm font-medium text-gray-700 mb-3">Quality Distribution</h4>
+                  <div className="flex h-4 rounded-full overflow-hidden bg-gray-200">
+                    {qualityData.data.total_jobs > 0 && (
+                      <>
+                        <div
+                          className="bg-green-500"
+                          style={{ width: `${(qualityData.data.excellent_quality / qualityData.data.total_jobs) * 100}%` }}
+                          title={`Excellent: ${qualityData.data.excellent_quality}`}
+                        />
+                        <div
+                          className="bg-blue-500"
+                          style={{ width: `${(qualityData.data.good_quality / qualityData.data.total_jobs) * 100}%` }}
+                          title={`Good: ${qualityData.data.good_quality}`}
+                        />
+                        <div
+                          className="bg-yellow-500"
+                          style={{ width: `${(qualityData.data.fair_quality / qualityData.data.total_jobs) * 100}%` }}
+                          title={`Fair: ${qualityData.data.fair_quality}`}
+                        />
+                        <div
+                          className="bg-red-500"
+                          style={{ width: `${(qualityData.data.poor_quality / qualityData.data.total_jobs) * 100}%` }}
+                          title={`Poor: ${qualityData.data.poor_quality}`}
+                        />
+                      </>
+                    )}
+                  </div>
+                  <div className="flex justify-between mt-2 text-xs">
+                    <span className="flex items-center">
+                      <span className="w-3 h-3 bg-green-500 rounded-full mr-1"></span>
+                      Excellent ({qualityData.data.excellent_quality})
+                    </span>
+                    <span className="flex items-center">
+                      <span className="w-3 h-3 bg-blue-500 rounded-full mr-1"></span>
+                      Good ({qualityData.data.good_quality})
+                    </span>
+                    <span className="flex items-center">
+                      <span className="w-3 h-3 bg-yellow-500 rounded-full mr-1"></span>
+                      Fair ({qualityData.data.fair_quality})
+                    </span>
+                    <span className="flex items-center">
+                      <span className="w-3 h-3 bg-red-500 rounded-full mr-1"></span>
+                      Poor ({qualityData.data.poor_quality})
+                    </span>
+                  </div>
+                </div>
+
+                {/* Stale Data Warning */}
+                {qualityData.data.stale_data_jobs > 0 && (
+                  <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex items-center">
+                    <ExclamationCircleIcon className="w-5 h-5 text-yellow-600 mr-2" />
+                    <span className="text-sm text-yellow-700">
+                      {qualityData.data.stale_data_jobs} job(s) have stale data. Consider running these jobs to update.
+                    </span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-gray-500 text-center py-4">No data quality information available</p>
             )}
           </div>
         </div>

@@ -194,3 +194,81 @@ type OHLCVStats struct {
 	OldestData       time.Time `json:"oldest_data,omitempty"`
 	NewestData       time.Time `json:"newest_data,omitempty"`
 }
+
+// DataQuality represents data quality metrics for OHLCV data
+type DataQuality struct {
+	ExchangeID        string    `json:"exchange_id"`
+	Symbol            string    `json:"symbol"`
+	Timeframe         string    `json:"timeframe"`
+	TotalCandles      int64     `json:"total_candles"`
+	ExpectedCandles   int64     `json:"expected_candles"`
+	MissingCandles    int64     `json:"missing_candles"`
+	CompletenessScore float64   `json:"completeness_score"` // 0-100 percentage
+	OldestCandle      time.Time `json:"oldest_candle,omitempty"`
+	NewestCandle      time.Time `json:"newest_candle,omitempty"`
+	DataFreshness     string    `json:"data_freshness"`   // "fresh", "stale", "very_stale"
+	FreshnessMinutes  int64     `json:"freshness_minutes"` // Minutes since last candle
+	GapsDetected      int       `json:"gaps_detected"`     // Number of gap periods
+	Gaps              []DataGap `json:"gaps,omitempty"`    // Details of detected gaps
+	QualityStatus     string    `json:"quality_status"`    // "excellent", "good", "fair", "poor"
+}
+
+// DataGap represents a gap in the time series data
+type DataGap struct {
+	StartTime        time.Time `json:"start_time"`
+	EndTime          time.Time `json:"end_time"`
+	MissingCandles   int       `json:"missing_candles"`
+	DurationMinutes  int64     `json:"duration_minutes"`
+}
+
+// DataQualitySummary represents aggregated data quality metrics
+type DataQualitySummary struct {
+	TotalJobs            int     `json:"total_jobs"`
+	ExcellentQuality     int     `json:"excellent_quality"`
+	GoodQuality          int     `json:"good_quality"`
+	FairQuality          int     `json:"fair_quality"`
+	PoorQuality          int     `json:"poor_quality"`
+	AverageCompleteness  float64 `json:"average_completeness"`
+	TotalMissingCandles  int64   `json:"total_missing_candles"`
+	TotalGaps            int     `json:"total_gaps"`
+	FreshDataJobs        int     `json:"fresh_data_jobs"`
+	StaleDataJobs        int     `json:"stale_data_jobs"`
+}
+
+// GetTimeframeDurationMinutes returns the duration of a timeframe in minutes
+func GetTimeframeDurationMinutes(timeframe string) int64 {
+	switch timeframe {
+	case "1m":
+		return 1
+	case "3m":
+		return 3
+	case "5m":
+		return 5
+	case "15m":
+		return 15
+	case "30m":
+		return 30
+	case "1h":
+		return 60
+	case "2h":
+		return 120
+	case "4h":
+		return 240
+	case "6h":
+		return 360
+	case "8h":
+		return 480
+	case "12h":
+		return 720
+	case "1d":
+		return 1440
+	case "3d":
+		return 4320
+	case "1w":
+		return 10080
+	case "1M":
+		return 43200 // Approximate month
+	default:
+		return 60 // Default to 1 hour
+	}
+}
