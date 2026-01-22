@@ -101,6 +101,70 @@
                 }
             }
         },
+        "/connectors/health": {
+            "get": {
+                "description": "Returns health metrics and status for all connectors",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connectors"
+                ],
+                "summary": "Get all connectors health status",
+                "responses": {
+                    "200": {
+                        "description": "Health status for all connectors",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/connectors/{id}/health": {
+            "get": {
+                "description": "Returns health metrics and status for a specific connector",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connectors"
+                ],
+                "summary": "Get connector health status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connector ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Health status",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Connector not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/exchanges": {
             "get": {
                 "description": "Returns the list of all cryptocurrency exchanges supported by CCXT",

@@ -17,8 +17,26 @@ type Connector struct {
 
 	RateLimit RateLimit `bson:"rate_limit" json:"rate_limit"`
 
+	// Health monitoring
+	Health ConnectorHealth `bson:"health" json:"health"`
+
 	// Credentials reference (keys stored in environment variables)
 	CredentialsRef CredentialsRef `bson:"credentials_ref,omitempty" json:"credentials_ref,omitempty"`
+}
+
+// ConnectorHealth tracks the health status and metrics of a connector
+type ConnectorHealth struct {
+	Status               string     `bson:"status" json:"status"`                                                   // "healthy", "degraded", "unhealthy"
+	LastSuccessfulCall   *time.Time `bson:"last_successful_call,omitempty" json:"last_successful_call,omitempty"`   // Last successful API call
+	LastFailedCall       *time.Time `bson:"last_failed_call,omitempty" json:"last_failed_call,omitempty"`           // Last failed API call
+	LastError            string     `bson:"last_error,omitempty" json:"last_error,omitempty"`                       // Last error message
+	ConsecutiveFailures  int        `bson:"consecutive_failures" json:"consecutive_failures"`                       // Consecutive failure count
+	TotalCalls           int64      `bson:"total_calls" json:"total_calls"`                                         // Total API calls made
+	TotalFailures        int64      `bson:"total_failures" json:"total_failures"`                                   // Total failed calls
+	AverageResponseMs    float64    `bson:"average_response_ms" json:"average_response_ms"`                         // Average response time in ms
+	LastResponseMs       int64      `bson:"last_response_ms" json:"last_response_ms"`                               // Last response time in ms
+	LastHealthCheck      *time.Time `bson:"last_health_check,omitempty" json:"last_health_check,omitempty"`         // Last health check timestamp
+	UptimePercentage     float64    `bson:"uptime_percentage" json:"uptime_percentage"`                             // Uptime percentage (0-100)
 }
 
 // RateLimit holds rate limiting configuration and state

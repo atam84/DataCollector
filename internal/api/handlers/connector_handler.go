@@ -593,3 +593,140 @@ func (h *ConnectorHandler) GetAllStats(c *fiber.Ctx) error {
 	return c.JSON(response)
 }
 
+// GetConnectorHealth returns health status for a specific connector
+// @Summary Get connector health status
+// @Description Returns health metrics and status for a specific connector
+// @Tags Connectors
+// @Accept json
+// @Produce json
+// @Param id path string true "Connector ID"
+// @Success 200 {object} map[string]interface{} "Health status"
+// @Failure 404 {object} map[string]interface{} "Connector not found"
+// @Router /connectors/{id}/health [get]
+func (h *ConnectorHandler) GetConnectorHealth(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	id := c.Params("id")
+
+	connector, err := h.repo.FindByID(ctx, id)
+	if err != nil {
+		if strings.Contains(err.Error(), "invalid") {
+			return errors.SendError(c, errors.BadRequest("Invalid connector ID format"))
+		}
+		return errors.SendError(c, errors.NotFound("Connector"))
+	}
+
+	// Get job counts for context
+	jobCount, _ := h.jobRepo.CountByConnector(ctx, connector.ExchangeID)
+	activeJobCount, _ := h.jobRepo.CountActiveByConnector(ctx, connector.ExchangeID)
+
+	// Determine health status description
+	healthDescription := "All systems operational"
+	if connector.Health.Status == "degraded" {
+		healthDescription = "Some API calls failing, monitoring"
+	} else if connector.Health.Status == "unhealthy" {
+		healthDescription = "Multiple consecutive failures detected"
+	}
+
+	// Calculate error rate
+	errorRate := float64(0)
+	if connector.Health.TotalCalls > 0 {
+		errorRate = (float64(connector.Health.TotalFailures) / float64(connector.Health.TotalCalls)) * 100
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data": fiber.Map{
+			"exchange_id":           connector.ExchangeID,
+			"display_name":          connector.DisplayName,
+			"connector_status":      connector.Status,
+			"health":                connector.Health,
+			"health_description":    healthDescription,
+			"error_rate_percentage": errorRate,
+			"job_count":             jobCount,
+			"active_job_count":      activeJobCount,
+		},
+	})
+}
+
+// GetAllConnectorsHealth returns health status for all connectors
+// @Summary Get all connectors health status
+// @Description Returns health metrics and status for all connectors
+// @Tags Connectors
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]interface{} "Health status for all connectors"
+// @Router /connectors/health [get]
+func (h *ConnectorHandler) GetAllConnectorsHealth(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	connectors, err := h.repo.FindAll(ctx, bson.M{})
+	if err != nil {
+		return errors.SendError(c, errors.DatabaseError("Failed to retrieve connectors"))
+	}
+
+	// Build health report for each connector
+	healthReports := make([]fiber.Map, 0, len(connectors))
+	healthySummary := 0
+	degradedSummary := 0
+	unhealthySummary := 0
+
+	for _, conn := range connectors {
+		// Calculate error rate
+		errorRate := float64(0)
+		if conn.Health.TotalCalls > 0 {
+			errorRate = (float64(conn.Health.TotalFailures) / float64(conn.Health.TotalCalls)) * 100
+		}
+
+		// Determine health status (default to healthy if no status set yet)
+		healthStatus := conn.Health.Status
+		if healthStatus == "" {
+			healthStatus = "healthy"
+		}
+
+		switch healthStatus {
+		case "healthy":
+			healthySummary++
+		case "degraded":
+			degradedSummary++
+		case "unhealthy":
+			unhealthySummary++
+		}
+
+		// Get job counts
+		jobCount, _ := h.jobRepo.CountByConnector(ctx, conn.ExchangeID)
+		activeJobCount, _ := h.jobRepo.CountActiveByConnector(ctx, conn.ExchangeID)
+
+		healthReports = append(healthReports, fiber.Map{
+			"exchange_id":           conn.ExchangeID,
+			"display_name":          conn.DisplayName,
+			"connector_status":      conn.Status,
+			"health_status":         healthStatus,
+			"total_calls":           conn.Health.TotalCalls,
+			"total_failures":        conn.Health.TotalFailures,
+			"consecutive_failures":  conn.Health.ConsecutiveFailures,
+			"error_rate_percentage": errorRate,
+			"uptime_percentage":     conn.Health.UptimePercentage,
+			"average_response_ms":   conn.Health.AverageResponseMs,
+			"last_successful_call":  conn.Health.LastSuccessfulCall,
+			"last_failed_call":      conn.Health.LastFailedCall,
+			"last_error":            conn.Health.LastError,
+			"job_count":             jobCount,
+			"active_job_count":      activeJobCount,
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"summary": fiber.Map{
+			"total":     len(connectors),
+			"healthy":   healthySummary,
+			"degraded":  degradedSummary,
+			"unhealthy": unhealthySummary,
+		},
+		"connectors": healthReports,
+	})
+}
+

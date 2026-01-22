@@ -121,11 +121,22 @@ func (e *JobExecutor) ExecuteJob(ctx context.Context, jobID string) (*models.Job
 
 	// Fetch OHLCV data from exchange
 	log.Printf("[EXEC] About to call FetchOHLCVData for %s", jobID)
+	fetchStartTime := time.Now()
 	candles, err := e.FetchOHLCVData(connector, job)
+	fetchDuration := time.Since(fetchStartTime).Milliseconds()
 	log.Printf("[EXEC] FetchOHLCVData returned %d candles, err=%v", len(candles), err)
 	if err != nil {
+		// Record failed API call for health monitoring
+		if healthErr := e.connectorRepo.RecordFailedCall(ctx, connector.ExchangeID, err.Error()); healthErr != nil {
+			log.Printf("[EXEC] Warning: Failed to record failed call for health: %v", healthErr)
+		}
 		// Handle error with retry logic
 		return e.handleExecutionError(ctx, job, err, startTime)
+	}
+
+	// Record successful API call for health monitoring
+	if healthErr := e.connectorRepo.RecordSuccessfulCall(ctx, connector.ExchangeID, fetchDuration); healthErr != nil {
+		log.Printf("[EXEC] Warning: Failed to record successful call for health: %v", healthErr)
 	}
 
 	// Success - reset consecutive failures

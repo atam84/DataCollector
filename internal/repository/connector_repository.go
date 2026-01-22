@@ -261,3 +261,136 @@ func (r *ConnectorRepository) GetRateLimitStats(ctx context.Context, exchangeID 
 
 	return &connector.RateLimit, nil
 }
+
+// RecordSuccessfulCall records a successful API call and updates health metrics
+func (r *ConnectorRepository) RecordSuccessfulCall(ctx context.Context, exchangeID string, responseTimeMs int64) error {
+	now := time.Now()
+
+	// First get the current connector to calculate new average
+	var connector models.Connector
+	err := r.collection.FindOne(ctx, bson.M{"exchange_id": exchangeID}).Decode(&connector)
+	if err != nil {
+		return fmt.Errorf("failed to find connector: %w", err)
+	}
+
+	// Calculate new average response time
+	newTotalCalls := connector.Health.TotalCalls + 1
+	newAvgResponseMs := ((connector.Health.AverageResponseMs * float64(connector.Health.TotalCalls)) + float64(responseTimeMs)) / float64(newTotalCalls)
+
+	// Calculate uptime percentage
+	uptimePercentage := float64(newTotalCalls-connector.Health.TotalFailures) / float64(newTotalCalls) * 100
+
+	// Determine health status
+	healthStatus := "healthy"
+	if connector.Health.ConsecutiveFailures > 0 {
+		// Just recovered from failure
+		healthStatus = "healthy"
+	}
+
+	filter := bson.M{"exchange_id": exchangeID}
+	update := bson.M{
+		"$set": bson.M{
+			"health.status":               healthStatus,
+			"health.last_successful_call": now,
+			"health.consecutive_failures": 0,
+			"health.average_response_ms":  newAvgResponseMs,
+			"health.last_response_ms":     responseTimeMs,
+			"health.last_health_check":    now,
+			"health.uptime_percentage":    uptimePercentage,
+			"updated_at":                  now,
+		},
+		"$inc": bson.M{
+			"health.total_calls": 1,
+		},
+	}
+
+	_, err = r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("failed to record successful call: %w", err)
+	}
+
+	return nil
+}
+
+// RecordFailedCall records a failed API call and updates health metrics
+func (r *ConnectorRepository) RecordFailedCall(ctx context.Context, exchangeID string, errorMsg string) error {
+	now := time.Now()
+
+	// First get the current connector
+	var connector models.Connector
+	err := r.collection.FindOne(ctx, bson.M{"exchange_id": exchangeID}).Decode(&connector)
+	if err != nil {
+		return fmt.Errorf("failed to find connector: %w", err)
+	}
+
+	newConsecutiveFailures := connector.Health.ConsecutiveFailures + 1
+	newTotalCalls := connector.Health.TotalCalls + 1
+	newTotalFailures := connector.Health.TotalFailures + 1
+
+	// Calculate uptime percentage
+	uptimePercentage := float64(newTotalCalls-newTotalFailures) / float64(newTotalCalls) * 100
+
+	// Determine health status based on consecutive failures
+	healthStatus := "healthy"
+	if newConsecutiveFailures >= 5 {
+		healthStatus = "unhealthy"
+	} else if newConsecutiveFailures >= 2 {
+		healthStatus = "degraded"
+	}
+
+	filter := bson.M{"exchange_id": exchangeID}
+	update := bson.M{
+		"$set": bson.M{
+			"health.status":               healthStatus,
+			"health.last_failed_call":     now,
+			"health.last_error":           errorMsg,
+			"health.consecutive_failures": newConsecutiveFailures,
+			"health.last_health_check":    now,
+			"health.uptime_percentage":    uptimePercentage,
+			"updated_at":                  now,
+		},
+		"$inc": bson.M{
+			"health.total_calls":    1,
+			"health.total_failures": 1,
+		},
+	}
+
+	_, err = r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("failed to record failed call: %w", err)
+	}
+
+	return nil
+}
+
+// GetHealthStatus returns the health status for a connector
+func (r *ConnectorRepository) GetHealthStatus(ctx context.Context, exchangeID string) (*models.ConnectorHealth, error) {
+	var connector models.Connector
+	err := r.collection.FindOne(ctx, bson.M{"exchange_id": exchangeID}).Decode(&connector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find connector: %w", err)
+	}
+
+	return &connector.Health, nil
+}
+
+// GetAllHealthStatuses returns health status for all connectors
+func (r *ConnectorRepository) GetAllHealthStatuses(ctx context.Context) (map[string]*models.ConnectorHealth, error) {
+	cursor, err := r.collection.Find(ctx, bson.M{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to find connectors: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	result := make(map[string]*models.ConnectorHealth)
+	for cursor.Next(ctx) {
+		var connector models.Connector
+		if err := cursor.Decode(&connector); err != nil {
+			continue
+		}
+		health := connector.Health
+		result[connector.ExchangeID] = &health
+	}
+
+	return result, nil
+}

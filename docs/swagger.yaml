@@ -121,6 +121,49 @@ paths:
       summary: Create a new connector
       tags:
       - Connectors
+  /connectors/{id}/health:
+    get:
+      consumes:
+      - application/json
+      description: Returns health metrics and status for a specific connector
+      parameters:
+      - description: Connector ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Health status
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Connector not found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get connector health status
+      tags:
+      - Connectors
+  /connectors/health:
+    get:
+      consumes:
+      - application/json
+      description: Returns health metrics and status for all connectors
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Health status for all connectors
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get all connectors health status
+      tags:
+      - Connectors
   /exchanges:
     get:
       consumes:

@@ -90,15 +90,15 @@
 
 ## 🟢 P3 - Low Priority
 
-| # | Issue | Description |
-|---|-------|-------------|
-| P3.1 | API documentation (Swagger/OpenAPI) | |
-| P3.2 | Add more trading pairs to JobWizard | |
-| P3.3 | Connector health monitoring dashboard | |
-| P3.4 | Data quality metrics (missing candles, gaps) | |
-| P3.5 | Custom timeframes support | |
-| P3.6 | WebSocket real-time updates | |
-| P3.7 | Multi-user authentication | |
+| # | Issue | Description | Status |
+|---|-------|-------------|--------|
+| P3.1 | API documentation (Swagger/OpenAPI) | Swagger UI at /swagger/index.html | ✅ Done |
+| P3.2 | Add more trading pairs to JobWizard | | |
+| P3.3 | Connector health monitoring dashboard | | |
+| P3.4 | Data quality metrics (missing candles, gaps) | | |
+| P3.5 | Custom timeframes support | | |
+| P3.6 | WebSocket real-time updates | | |
+| P3.7 | Multi-user authentication | | |
 
 ---
 

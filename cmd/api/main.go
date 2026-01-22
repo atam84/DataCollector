@@ -148,9 +148,10 @@ func main() {
 	api.Post("/exchanges/:id/symbols/validate", healthHandler.ValidateSymbols)
 	api.Get("/exchanges/:id/symbols/popular", healthHandler.GetPopularSymbols)
 
-	// Connector routes
+	// Connector routes (health route MUST come before :id route)
 	api.Post("/connectors", connectorHandler.CreateConnector)
 	api.Get("/connectors", connectorHandler.GetConnectors)
+	api.Get("/connectors/health", connectorHandler.GetAllConnectorsHealth)
 	api.Get("/connectors/:id", connectorHandler.GetConnector)
 	api.Put("/connectors/:id", connectorHandler.UpdateConnector)
 	api.Delete("/connectors/:id", connectorHandler.DeleteConnector)
@@ -159,6 +160,7 @@ func main() {
 	api.Get("/connectors/:id/rate-limit", connectorHandler.GetRateLimitStatus)
 	api.Post("/connectors/:id/rate-limit/reset", connectorHandler.ResetRateLimitUsage)
 	api.Get("/connectors/:id/stats", connectorHandler.GetConnectorStats)
+	api.Get("/connectors/:id/health", connectorHandler.GetConnectorHealth)
 
 	// Global stats
 	api.Get("/stats", connectorHandler.GetAllStats)

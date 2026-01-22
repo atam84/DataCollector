@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react'
 import axios from 'axios'
-import { ArrowPathIcon, BoltIcon, ExclamationTriangleIcon, ChartBarIcon, CircleStackIcon } from '@heroicons/react/24/outline'
+import { ArrowPathIcon, BoltIcon, ExclamationTriangleIcon, ChartBarIcon, CircleStackIcon, HeartIcon, CheckCircleIcon, XCircleIcon, ClockIcon } from '@heroicons/react/24/outline'
 
 const API_BASE = '/api/v1'
 
@@ -18,6 +18,8 @@ const formatNumber = (num) => {
 function Dashboard({ connectors, jobs, onRefresh, loading }) {
   const [globalStats, setGlobalStats] = useState(null)
   const [loadingStats, setLoadingStats] = useState(false)
+  const [healthData, setHealthData] = useState(null)
+  const [loadingHealth, setLoadingHealth] = useState(false)
 
   // Fetch global stats
   useEffect(() => {
@@ -34,6 +36,22 @@ function Dashboard({ connectors, jobs, onRefresh, loading }) {
     }
     fetchStats()
   }, [connectors, jobs]) // Refresh when connectors or jobs change
+
+  // Fetch health data
+  useEffect(() => {
+    const fetchHealth = async () => {
+      setLoadingHealth(true)
+      try {
+        const response = await axios.get(`${API_BASE}/connectors/health`)
+        setHealthData(response.data)
+      } catch (err) {
+        console.error('Failed to fetch health data:', err)
+      } finally {
+        setLoadingHealth(false)
+      }
+    }
+    fetchHealth()
+  }, [connectors]) // Refresh when connectors change
   const stats = useMemo(() => {
     const activeConnectors = connectors.filter(c => c.status === 'active').length
     const disabledConnectors = connectors.filter(c => c.status === 'disabled').length
@@ -279,6 +297,129 @@ function Dashboard({ connectors, jobs, onRefresh, loading }) {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Health Monitoring Section */}
+      {connectors.length > 0 && (
+        <div className="bg-white rounded-lg shadow mb-8">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                <HeartIcon className="w-5 h-5 mr-2 text-red-500" />
+                Connector Health Monitoring
+              </h3>
+              {healthData?.summary && (
+                <div className="flex items-center space-x-4 text-sm">
+                  <span className="flex items-center text-green-600">
+                    <CheckCircleIcon className="w-4 h-4 mr-1" />
+                    {healthData.summary.healthy} healthy
+                  </span>
+                  {healthData.summary.degraded > 0 && (
+                    <span className="flex items-center text-yellow-600">
+                      <ExclamationTriangleIcon className="w-4 h-4 mr-1" />
+                      {healthData.summary.degraded} degraded
+                    </span>
+                  )}
+                  {healthData.summary.unhealthy > 0 && (
+                    <span className="flex items-center text-red-600">
+                      <XCircleIcon className="w-4 h-4 mr-1" />
+                      {healthData.summary.unhealthy} unhealthy
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="p-6">
+            {loadingHealth ? (
+              <div className="text-center py-4">
+                <ArrowPathIcon className="w-6 h-6 animate-spin mx-auto text-gray-400" />
+                <p className="text-sm text-gray-500 mt-2">Loading health data...</p>
+              </div>
+            ) : healthData?.connectors ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {healthData.connectors.map(conn => (
+                  <div
+                    key={conn.exchange_id}
+                    className={`border rounded-lg p-4 ${
+                      conn.health_status === 'unhealthy' ? 'border-red-300 bg-red-50' :
+                      conn.health_status === 'degraded' ? 'border-yellow-300 bg-yellow-50' :
+                      'border-green-300 bg-green-50'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <p className="font-medium text-gray-900">{conn.display_name}</p>
+                        <p className="text-xs text-gray-500">{conn.exchange_id}</p>
+                      </div>
+                      <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                        conn.health_status === 'unhealthy' ? 'bg-red-200 text-red-800' :
+                        conn.health_status === 'degraded' ? 'bg-yellow-200 text-yellow-800' :
+                        'bg-green-200 text-green-800'
+                      }`}>
+                        {conn.health_status || 'healthy'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="bg-white bg-opacity-60 rounded p-2">
+                        <p className="text-gray-500">Uptime</p>
+                        <p className="font-semibold text-gray-900">
+                          {conn.uptime_percentage ? conn.uptime_percentage.toFixed(1) : 100}%
+                        </p>
+                      </div>
+                      <div className="bg-white bg-opacity-60 rounded p-2">
+                        <p className="text-gray-500">Avg Response</p>
+                        <p className="font-semibold text-gray-900">
+                          {conn.average_response_ms ? Math.round(conn.average_response_ms) : 0}ms
+                        </p>
+                      </div>
+                      <div className="bg-white bg-opacity-60 rounded p-2">
+                        <p className="text-gray-500">Total Calls</p>
+                        <p className="font-semibold text-gray-900">{formatNumber(conn.total_calls || 0)}</p>
+                      </div>
+                      <div className="bg-white bg-opacity-60 rounded p-2">
+                        <p className="text-gray-500">Error Rate</p>
+                        <p className={`font-semibold ${
+                          conn.error_rate_percentage > 10 ? 'text-red-600' :
+                          conn.error_rate_percentage > 5 ? 'text-yellow-600' :
+                          'text-green-600'
+                        }`}>
+                          {conn.error_rate_percentage ? conn.error_rate_percentage.toFixed(1) : 0}%
+                        </p>
+                      </div>
+                    </div>
+
+                    {conn.consecutive_failures > 0 && (
+                      <div className="mt-2 p-2 bg-red-100 rounded text-xs text-red-700">
+                        <ExclamationTriangleIcon className="w-3 h-3 inline mr-1" />
+                        {conn.consecutive_failures} consecutive failures
+                      </div>
+                    )}
+
+                    {conn.last_error && conn.health_status !== 'healthy' && (
+                      <div className="mt-2 p-2 bg-gray-100 rounded text-xs text-gray-600 truncate" title={conn.last_error}>
+                        Last error: {conn.last_error.substring(0, 50)}...
+                      </div>
+                    )}
+
+                    <div className="mt-2 pt-2 border-t border-gray-200 flex justify-between text-xs text-gray-500">
+                      <span className="flex items-center">
+                        <ClockIcon className="w-3 h-3 mr-1" />
+                        {conn.last_successful_call
+                          ? new Date(conn.last_successful_call).toLocaleTimeString()
+                          : 'Never'}
+                      </span>
+                      <span>{conn.active_job_count} / {conn.job_count} jobs active</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500 text-center py-4">No health data available</p>
+            )}
           </div>
         </div>
       )}
