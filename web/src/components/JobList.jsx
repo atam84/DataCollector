@@ -9,7 +9,11 @@ import {
   BoltIcon,
   MagnifyingGlassIcon,
   FunnelIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  ClockIcon,
+  DocumentDuplicateIcon
 } from '@heroicons/react/24/outline'
 import JobDetails from './JobDetails'
 import JobWizard from './JobWizard'
@@ -62,6 +66,15 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
   const [executingJobs, setExecutingJobs] = useState(new Set())
   const [selectedJobs, setSelectedJobs] = useState(new Set())
   const [deletingSelected, setDeletingSelected] = useState(false)
+  const [showExecutionModal, setShowExecutionModal] = useState(false)
+  const [executionResult, setExecutionResult] = useState(null)
+  const [copiedToClipboard, setCopiedToClipboard] = useState(false)
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text)
+    setCopiedToClipboard(true)
+    setTimeout(() => setCopiedToClipboard(false), 2000)
+  }
 
   const handleWizardSave = async (jobs) => {
     try {
@@ -131,20 +144,33 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
   }
 
   const executeJob = async (id) => {
+    const job = jobs.find(j => j.id === id)
     setExecutingJobs(prev => new Set(prev).add(id))
     try {
+      const startTime = Date.now()
       const response = await axios.post(`${API_BASE}/jobs/${id}/execute`)
       const result = response.data
 
-      if (result.success) {
-        alert(`Job executed successfully!\nRecords fetched: ${result.records_fetched}\nExecution time: ${result.execution_time_ms}ms`)
-      } else {
-        alert(`Job execution failed: ${result.error || result.message}`)
-      }
+      // Show execution result modal with detailed information
+      setExecutionResult({
+        job: job,
+        success: result.success && result.data?.success,
+        data: result.data,
+        error: result.data?.error || result.error || result.message,
+        clientElapsedMs: Date.now() - startTime
+      })
+      setShowExecutionModal(true)
 
       onRefresh()
     } catch (err) {
-      alert('Failed to execute job: ' + (err.response?.data?.error || err.message))
+      // Show error in modal instead of alert
+      setExecutionResult({
+        job: job,
+        success: false,
+        error: err.response?.data?.error || err.response?.data?.message || err.message,
+        data: null
+      })
+      setShowExecutionModal(true)
     } finally {
       setExecutingJobs(prev => {
         const newSet = new Set(prev)
@@ -166,12 +192,27 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
   const recalculateJob = async (jobId) => {
     if (!confirm('Recalculate all indicators for this job? This may take a while.')) return
 
+    const job = jobs.find(j => j.id === jobId)
     setRecalculatingJobs(prev => new Set(prev).add(jobId))
     try {
-      await axios.post(`${API_BASE}/jobs/${jobId}/indicators/recalculate`)
-      alert('Indicators recalculated successfully!')
+      const response = await axios.post(`${API_BASE}/jobs/${jobId}/indicators/recalculate`)
+      setExecutionResult({
+        job: job,
+        success: true,
+        data: {
+          message: response.data?.message || 'Indicators recalculated successfully',
+          records_fetched: response.data?.records_updated || response.data?.count,
+          execution_time_ms: response.data?.execution_time_ms
+        }
+      })
+      setShowExecutionModal(true)
     } catch (err) {
-      alert('Failed to recalculate: ' + (err.response?.data?.error || err.message))
+      setExecutionResult({
+        job: job,
+        success: false,
+        error: err.response?.data?.error || err.response?.data?.message || err.message
+      })
+      setShowExecutionModal(true)
     } finally {
       setRecalculatingJobs(prev => {
         const newSet = new Set(prev)
@@ -617,17 +658,166 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
 
             <div className="p-4 border-t bg-gray-50 flex justify-end space-x-2">
               <button
-                onClick={() => {
-                  navigator.clipboard.writeText(selectedError.error)
-                  alert('Error copied to clipboard!')
-                }}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition"
+                onClick={() => copyToClipboard(selectedError.error)}
+                className={`px-4 py-2 rounded transition flex items-center ${
+                  copiedToClipboard
+                    ? 'bg-green-500 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
               >
-                Copy to Clipboard
+                <DocumentDuplicateIcon className="w-4 h-4 mr-2" />
+                {copiedToClipboard ? 'Copied!' : 'Copy to Clipboard'}
               </button>
               <button
                 onClick={() => setShowErrorModal(false)}
                 className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Job Execution Result Modal */}
+      {showExecutionModal && executionResult && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-lg overflow-hidden">
+            {/* Header */}
+            <div className={`p-4 border-b ${executionResult.success ? 'bg-green-50' : 'bg-red-50'}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  {executionResult.success ? (
+                    <CheckCircleIcon className="w-6 h-6 text-green-500 mr-2" />
+                  ) : (
+                    <XCircleIcon className="w-6 h-6 text-red-500 mr-2" />
+                  )}
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      {executionResult.success ? 'Job Executed Successfully' : 'Job Execution Failed'}
+                    </h3>
+                    {executionResult.job && (
+                      <p className="text-sm text-gray-500">
+                        {executionResult.job.symbol} • {executionResult.job.timeframe}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowExecutionModal(false)}
+                  className="text-gray-400 hover:text-gray-600 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-4">
+              {executionResult.success && executionResult.data ? (
+                <div className="space-y-4">
+                  {/* Stats Grid */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-blue-50 rounded-lg p-4">
+                      <div className="flex items-center text-blue-600 mb-1">
+                        <DocumentDuplicateIcon className="w-5 h-5 mr-2" />
+                        <span className="text-sm font-medium">Records Fetched</span>
+                      </div>
+                      <p className="text-2xl font-bold text-blue-700">
+                        {executionResult.data.records_fetched?.toLocaleString() || 0}
+                      </p>
+                      <p className="text-xs text-blue-500 mt-1">candles collected</p>
+                    </div>
+                    <div className="bg-purple-50 rounded-lg p-4">
+                      <div className="flex items-center text-purple-600 mb-1">
+                        <ClockIcon className="w-5 h-5 mr-2" />
+                        <span className="text-sm font-medium">Execution Time</span>
+                      </div>
+                      <p className="text-2xl font-bold text-purple-700">
+                        {executionResult.data.execution_time_ms?.toLocaleString() || 0}
+                        <span className="text-sm font-normal ml-1">ms</span>
+                      </p>
+                      <p className="text-xs text-purple-500 mt-1">server processing</p>
+                    </div>
+                  </div>
+
+                  {/* Additional Info */}
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">Additional Details</h4>
+                    <div className="space-y-2 text-sm">
+                      {executionResult.data.message && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Message:</span>
+                          <span className="text-gray-900 font-medium">{executionResult.data.message}</span>
+                        </div>
+                      )}
+                      {executionResult.data.next_run_time && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Next Scheduled Run:</span>
+                          <span className="text-gray-900 font-medium">
+                            {new Date(executionResult.data.next_run_time).toLocaleString()}
+                          </span>
+                        </div>
+                      )}
+                      {executionResult.clientElapsedMs && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Total Round-Trip:</span>
+                          <span className="text-gray-900 font-medium">
+                            {(executionResult.clientElapsedMs / 1000).toFixed(2)}s
+                          </span>
+                        </div>
+                      )}
+                      {executionResult.job && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Connector:</span>
+                          <span className="text-gray-900 font-medium">
+                            {getConnectorName(executionResult.job.connector_exchange_id)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Error Display */
+                <div className="space-y-4">
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <h4 className="text-sm font-medium text-red-700 mb-2">Error Details</h4>
+                    <div className="bg-gray-900 text-gray-100 p-3 rounded overflow-x-auto">
+                      <pre className="text-xs whitespace-pre-wrap break-words font-mono">
+                        {executionResult.error || 'Unknown error occurred'}
+                      </pre>
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-500">
+                    Check the job configuration and connector status, then try again.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t bg-gray-50 flex justify-end space-x-2">
+              {!executionResult.success && executionResult.error && (
+                <button
+                  onClick={() => copyToClipboard(executionResult.error)}
+                  className={`px-4 py-2 rounded transition flex items-center ${
+                    copiedToClipboard
+                      ? 'bg-green-500 text-white'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  <DocumentDuplicateIcon className="w-4 h-4 mr-2" />
+                  {copiedToClipboard ? 'Copied!' : 'Copy Error'}
+                </button>
+              )}
+              <button
+                onClick={() => setShowExecutionModal(false)}
+                className={`px-4 py-2 rounded transition ${
+                  executionResult.success
+                    ? 'bg-green-500 text-white hover:bg-green-600'
+                    : 'bg-blue-500 text-white hover:bg-blue-600'
+                }`}
               >
                 Close
               </button>
