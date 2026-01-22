@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import axios from 'axios'
 import {
   ArrowPathIcon,
@@ -10,7 +10,9 @@ import {
   MagnifyingGlassIcon,
   PlayIcon,
   CalendarIcon,
-  WrenchScrewdriverIcon
+  WrenchScrewdriverIcon,
+  EyeIcon,
+  ArrowDownIcon
 } from '@heroicons/react/24/outline'
 
 const API_BASE = '/api/v1'
@@ -43,11 +45,19 @@ const formatTimeAgo = (dateString) => {
   return date.toLocaleDateString()
 }
 
+// Format date range nicely
+const formatDateRange = (start, end) => {
+  if (!start || !end) return 'N/A'
+  const startDate = new Date(start)
+  const endDate = new Date(end)
+  const opts = { month: 'short', day: 'numeric', year: 'numeric' }
+  return `${startDate.toLocaleDateString('en-US', opts)} - ${endDate.toLocaleDateString('en-US', opts)}`
+}
+
 function DataQuality({ jobs }) {
   const [summary, setSummary] = useState(null)
   const [qualities, setQualities] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [loadingQualities, setLoadingQualities] = useState(false)
+  const [initialLoading, setInitialLoading] = useState(true)
   const [selectedExchange, setSelectedExchange] = useState('')
   const [selectedStatus, setSelectedStatus] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
@@ -60,43 +70,59 @@ function DataQuality({ jobs }) {
   const [startingCheck, setStartingCheck] = useState(false)
   const [showChecks, setShowChecks] = useState(false)
 
+  // Modal state
+  const [selectedQuality, setSelectedQuality] = useState(null)
+  const [showModal, setShowModal] = useState(false)
+  const [backfillLoading, setBackfillLoading] = useState(false)
+
+  // Ref to track if initial load is done
+  const initialLoadDone = useRef(false)
+
   // Get unique exchanges from jobs
   const exchanges = [...new Set(jobs.map(j => j.connector_exchange_id))].filter(Boolean)
 
   useEffect(() => {
-    fetchSummary()
-    fetchQualities()
-    fetchActiveChecks()
-    fetchRecentChecks()
+    const loadData = async () => {
+      if (!initialLoadDone.current) {
+        setInitialLoading(true)
+      }
+      await Promise.all([
+        fetchSummary(false),
+        fetchQualities(false),
+        fetchActiveChecks(),
+        fetchRecentChecks()
+      ])
+      if (!initialLoadDone.current) {
+        setInitialLoading(false)
+        initialLoadDone.current = true
+      }
+    }
+    loadData()
   }, [selectedExchange])
 
-  // Poll for active checks
+  // Poll for active checks - don't trigger loading states
   useEffect(() => {
     if (activeChecks.length > 0) {
       const interval = setInterval(() => {
         fetchActiveChecks()
-        fetchQualities()
-        fetchSummary()
+        fetchQualities(false)
+        fetchSummary(false)
       }, 5000) // Poll every 5 seconds
       return () => clearInterval(interval)
     }
   }, [activeChecks.length])
 
-  const fetchSummary = async () => {
-    setLoading(true)
+  const fetchSummary = async (showLoading = true) => {
     try {
       const params = selectedExchange ? { exchange_id: selectedExchange } : {}
       const response = await axios.get(`${API_BASE}/quality/summary`, { params })
       setSummary(response.data.data)
     } catch (err) {
       console.error('Failed to fetch quality summary:', err)
-    } finally {
-      setLoading(false)
     }
   }
 
-  const fetchQualities = async () => {
-    setLoadingQualities(true)
+  const fetchQualities = async (showLoading = true) => {
     try {
       const params = {}
       if (selectedExchange) params.exchange_id = selectedExchange
@@ -106,8 +132,6 @@ function DataQuality({ jobs }) {
     } catch (err) {
       console.error('Failed to fetch qualities:', err)
       setQualities([])
-    } finally {
-      setLoadingQualities(false)
     }
   }
 
@@ -149,11 +173,35 @@ function DataQuality({ jobs }) {
     }
   }
 
-  const handleRefresh = () => {
-    fetchSummary()
-    fetchQualities()
-    fetchActiveChecks()
-    fetchRecentChecks()
+  const handleRefresh = async () => {
+    setInitialLoading(true)
+    await Promise.all([
+      fetchSummary(false),
+      fetchQualities(false),
+      fetchActiveChecks(),
+      fetchRecentChecks()
+    ])
+    setInitialLoading(false)
+  }
+
+  const openModal = (quality) => {
+    setSelectedQuality(quality)
+    setShowModal(true)
+  }
+
+  const closeModal = () => {
+    setSelectedQuality(null)
+    setShowModal(false)
+  }
+
+  const startGapFill = async (jobId, fillAll = true) => {
+    try {
+      await axios.post(`${API_BASE}/jobs/${jobId}/quality/fill-gaps`, { fill_all: fillAll })
+      alert('Gap fill started. Check job details for progress.')
+      closeModal()
+    } catch (err) {
+      alert('Failed to start gap fill: ' + (err.response?.data?.error || err.message))
+    }
   }
 
   // Filter and sort qualities
@@ -233,6 +281,9 @@ function DataQuality({ jobs }) {
     }
   }
 
+  // Check if data is insufficient (less than 100 candles is suspicious)
+  const isInsufficientData = (q) => q.total_candles < 100
+
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -290,9 +341,9 @@ function DataQuality({ jobs }) {
             onClick={handleRefresh}
             className="p-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition"
             title="Refresh"
-            disabled={loading}
+            disabled={initialLoading}
           >
-            <ArrowPathIcon className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+            <ArrowPathIcon className={`w-5 h-5 ${initialLoading ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
@@ -470,6 +521,8 @@ function DataQuality({ jobs }) {
             <option value="quality_status-desc">Sort: Quality (Best First)</option>
             <option value="completeness_score-asc">Sort: Completeness (Low-High)</option>
             <option value="completeness_score-desc">Sort: Completeness (High-Low)</option>
+            <option value="total_candles-asc">Sort: Candles (Low-High)</option>
+            <option value="total_candles-desc">Sort: Candles (High-Low)</option>
             <option value="gaps_detected-desc">Sort: Gaps (Most First)</option>
             <option value="data_age_days-desc">Sort: Data Age (Oldest First)</option>
             <option value="checked_at-asc">Sort: Last Checked (Oldest First)</option>
@@ -486,7 +539,7 @@ function DataQuality({ jobs }) {
           </h3>
         </div>
 
-        {loadingQualities ? (
+        {initialLoading ? (
           <div className="text-center py-12">
             <ArrowPathIcon className="w-8 h-8 animate-spin mx-auto text-gray-400" />
             <p className="text-sm text-gray-500 mt-2">Loading quality data...</p>
@@ -511,19 +564,29 @@ function DataQuality({ jobs }) {
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Gaps</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Freshness</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Data Period</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Checked</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredQualities.map((q, idx) => (
-                  <tr key={`${q.exchange_id}-${q.symbol}-${q.timeframe}-${idx}`} className="hover:bg-gray-50">
+                  <tr
+                    key={`${q.exchange_id}-${q.symbol}-${q.timeframe}-${idx}`}
+                    className={`hover:bg-gray-50 ${isInsufficientData(q) ? 'bg-orange-50' : ''}`}
+                  >
                     <td className="px-4 py-3 text-sm text-gray-900">{q.exchange_id}</td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">{q.symbol}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{q.timeframe}</td>
                     <td className="px-4 py-3 text-center">
-                      <span className={`px-2 py-1 text-xs font-medium rounded border ${getStatusColor(q.quality_status)}`}>
-                        {q.quality_status || 'unknown'}
-                      </span>
+                      <div className="flex items-center justify-center space-x-1">
+                        <span className={`px-2 py-1 text-xs font-medium rounded border ${getStatusColor(q.quality_status)}`}>
+                          {q.quality_status || 'unknown'}
+                        </span>
+                        {isInsufficientData(q) && (
+                          <span className="px-1.5 py-0.5 text-xs bg-orange-200 text-orange-800 rounded" title="Insufficient data">
+                            !
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-right">
                       <div className="flex items-center justify-end">
@@ -539,7 +602,11 @@ function DataQuality({ jobs }) {
                         <span className="font-mono text-xs">{(q.completeness_score || 0).toFixed(1)}%</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-right font-mono">{formatNumber(q.total_candles || 0)}</td>
+                    <td className="px-4 py-3 text-sm text-right font-mono">
+                      <span className={isInsufficientData(q) ? 'text-orange-600 font-semibold' : ''}>
+                        {formatNumber(q.total_candles || 0)}
+                      </span>
+                    </td>
                     <td className="px-4 py-3 text-sm text-right">
                       {(q.gaps_detected || 0) > 0 ? (
                         <span className="text-orange-600 font-medium">{q.gaps_detected}</span>
@@ -558,18 +625,25 @@ function DataQuality({ jobs }) {
                     <td className="px-4 py-3 text-xs text-gray-500">
                       {q.data_period_start && q.data_period_end ? (
                         <div>
-                          <div>{new Date(q.data_period_start).toLocaleDateString()}</div>
-                          <div>to {new Date(q.data_period_end).toLocaleDateString()}</div>
+                          <div className="font-medium text-gray-700">
+                            {formatDateRange(q.data_period_start, q.data_period_end)}
+                          </div>
                           <div className="text-gray-400">
-                            ({q.data_period_days || 0}d, {q.data_age_days || 0}d old)
+                            {q.data_period_days || 0} days coverage
                           </div>
                         </div>
                       ) : (
                         'N/A'
                       )}
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-500">
-                      {q.checked_at ? formatTimeAgo(q.checked_at) : 'Never'}
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        onClick={() => openModal(q)}
+                        className="p-1.5 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 transition"
+                        title="View details"
+                      >
+                        <EyeIcon className="w-4 h-4" />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -578,6 +652,175 @@ function DataQuality({ jobs }) {
           </div>
         )}
       </div>
+
+      {/* Detail Modal */}
+      {showModal && selectedQuality && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center sticky top-0 bg-white">
+              <h3 className="text-lg font-semibold text-gray-900">
+                {selectedQuality.symbol} ({selectedQuality.timeframe}) - {selectedQuality.exchange_id}
+              </h3>
+              <button onClick={closeModal} className="text-gray-400 hover:text-gray-600">
+                <XCircleIcon className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Status Banner */}
+              <div className={`p-4 rounded-lg border-2 ${
+                selectedQuality.quality_status === 'excellent' ? 'bg-green-50 border-green-300' :
+                selectedQuality.quality_status === 'good' ? 'bg-blue-50 border-blue-300' :
+                selectedQuality.quality_status === 'fair' ? 'bg-yellow-50 border-yellow-300' :
+                'bg-red-50 border-red-300'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    {selectedQuality.quality_status === 'excellent' && <CheckCircleIcon className="w-6 h-6 text-green-600 mr-2" />}
+                    {selectedQuality.quality_status === 'good' && <CheckCircleIcon className="w-6 h-6 text-blue-600 mr-2" />}
+                    {selectedQuality.quality_status === 'fair' && <ExclamationTriangleIcon className="w-6 h-6 text-yellow-600 mr-2" />}
+                    {selectedQuality.quality_status === 'poor' && <ExclamationTriangleIcon className="w-6 h-6 text-red-600 mr-2" />}
+                    <div>
+                      <span className="text-lg font-bold capitalize">{selectedQuality.quality_status} Quality</span>
+                      {isInsufficientData(selectedQuality) && (
+                        <span className="ml-2 px-2 py-0.5 text-xs bg-orange-200 text-orange-800 rounded">
+                          Insufficient Data
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <span className={`text-2xl font-bold ${
+                    (selectedQuality.completeness_score || 0) >= 95 ? 'text-green-600' :
+                    (selectedQuality.completeness_score || 0) >= 80 ? 'text-yellow-600' : 'text-red-600'
+                  }`}>
+                    {(selectedQuality.completeness_score || 0).toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+
+              {/* Metrics Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-indigo-600">{selectedQuality.total_candles?.toLocaleString() || 0}</p>
+                  <p className="text-xs text-gray-600">Total Candles</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-blue-600">{selectedQuality.expected_candles?.toLocaleString() || 0}</p>
+                  <p className="text-xs text-gray-600">Expected</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                  <p className={`text-2xl font-bold ${(selectedQuality.missing_candles || 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    {selectedQuality.missing_candles?.toLocaleString() || 0}
+                  </p>
+                  <p className="text-xs text-gray-600">Missing</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                  <p className={`text-2xl font-bold ${(selectedQuality.gaps_detected || 0) > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                    {selectedQuality.gaps_detected || 0}
+                  </p>
+                  <p className="text-xs text-gray-600">Gaps</p>
+                </div>
+              </div>
+
+              {/* Data Period */}
+              <div className="bg-indigo-50 rounded-lg p-4 border border-indigo-200">
+                <h4 className="text-sm font-semibold text-indigo-900 mb-3 flex items-center">
+                  <CalendarIcon className="w-4 h-4 mr-2" />
+                  Data Period
+                </h4>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-indigo-700 font-medium">From:</span>
+                    <p className="text-indigo-900">
+                      {selectedQuality.data_period_start ? new Date(selectedQuality.data_period_start).toLocaleString() : 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-indigo-700 font-medium">To:</span>
+                    <p className="text-indigo-900">
+                      {selectedQuality.data_period_end ? new Date(selectedQuality.data_period_end).toLocaleString() : 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-indigo-700 font-medium">Coverage:</span>
+                    <p className="text-indigo-900">{selectedQuality.data_period_days || 0} days</p>
+                  </div>
+                  <div>
+                    <span className="text-indigo-700 font-medium">Data Freshness:</span>
+                    <p className={`font-medium ${getFreshnessColor(selectedQuality.data_freshness)}`}>
+                      {selectedQuality.data_freshness || 'unknown'}
+                      {selectedQuality.freshness_minutes && (
+                        <span className="text-gray-500 font-normal ml-1">
+                          ({selectedQuality.freshness_minutes < 60 ? `${selectedQuality.freshness_minutes}m` :
+                            selectedQuality.freshness_minutes < 1440 ? `${Math.round(selectedQuality.freshness_minutes / 60)}h` :
+                            `${Math.round(selectedQuality.freshness_minutes / 1440)}d`} ago)
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Gaps List */}
+              {selectedQuality.gaps && selectedQuality.gaps.length > 0 && (
+                <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
+                  <h4 className="text-sm font-semibold text-orange-900 mb-3 flex items-center">
+                    <ExclamationTriangleIcon className="w-4 h-4 mr-2" />
+                    Detected Gaps ({selectedQuality.gaps.length})
+                  </h4>
+                  <div className="max-h-40 overflow-y-auto">
+                    <table className="min-w-full text-xs">
+                      <thead>
+                        <tr className="text-orange-700">
+                          <th className="text-left py-1">Start</th>
+                          <th className="text-left py-1">End</th>
+                          <th className="text-right py-1">Missing</th>
+                        </tr>
+                      </thead>
+                      <tbody className="text-gray-700">
+                        {selectedQuality.gaps.slice(0, 10).map((gap, idx) => (
+                          <tr key={idx} className="border-t border-orange-200">
+                            <td className="py-1">{new Date(gap.start_time).toLocaleString()}</td>
+                            <td className="py-1">{new Date(gap.end_time).toLocaleString()}</td>
+                            <td className="py-1 text-right font-medium text-orange-700">{gap.missing_candles}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {selectedQuality.gaps.length > 10 && (
+                      <p className="text-xs text-orange-600 mt-2">+ {selectedQuality.gaps.length - 10} more gaps</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex justify-between items-center pt-4 border-t border-gray-200">
+                <div className="text-xs text-gray-500">
+                  Last checked: {selectedQuality.checked_at ? formatTimeAgo(selectedQuality.checked_at) : 'Never'}
+                </div>
+                <div className="flex space-x-2">
+                  {selectedQuality.gaps && selectedQuality.gaps.length > 0 && (
+                    <button
+                      onClick={() => startGapFill(selectedQuality.job_id, true)}
+                      className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 transition flex items-center"
+                    >
+                      <WrenchScrewdriverIcon className="w-4 h-4 mr-2" />
+                      Fill Gaps
+                    </button>
+                  )}
+                  <button
+                    onClick={closeModal}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -784,7 +784,7 @@ func (r *OHLCVRepository) AnalyzeDataQuality(ctx context.Context, exchangeID, sy
 	quality.GapsDetected = len(quality.Gaps)
 
 	// Determine overall quality status
-	quality.QualityStatus = calculateQualityStatus(quality.CompletenessScore, quality.GapsDetected, quality.DataFreshness)
+	quality.QualityStatus = calculateQualityStatus(quality.CompletenessScore, quality.GapsDetected, quality.DataFreshness, quality.TotalCandles)
 
 	return quality, nil
 }
@@ -832,14 +832,24 @@ func detectGaps(candles []models.Candle, timeframeDurationMinutes int64) []model
 }
 
 // calculateQualityStatus determines the overall quality status
-func calculateQualityStatus(completeness float64, gapsCount int, freshness string) string {
-	if completeness >= 99 && gapsCount == 0 && freshness == "fresh" {
+// Minimum data requirements:
+// - "excellent" requires at least 1000 candles
+// - "good" requires at least 500 candles
+// - "fair" requires at least 100 candles
+// Jobs with fewer than 100 candles are always "poor" (insufficient data)
+func calculateQualityStatus(completeness float64, gapsCount int, freshness string, totalCandles int64) string {
+	// Minimum data requirements - insufficient data is always "poor"
+	if totalCandles < 100 {
+		return "poor"
+	}
+
+	if completeness >= 99 && gapsCount == 0 && freshness == "fresh" && totalCandles >= 1000 {
 		return "excellent"
 	}
-	if completeness >= 95 && gapsCount <= 2 && freshness != "very_stale" {
+	if completeness >= 95 && gapsCount <= 2 && freshness != "very_stale" && totalCandles >= 500 {
 		return "good"
 	}
-	if completeness >= 80 && gapsCount <= 5 {
+	if completeness >= 80 && gapsCount <= 5 && totalCandles >= 100 {
 		return "fair"
 	}
 	return "poor"
