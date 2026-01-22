@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { BoltIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
+import JobDetails from './JobDetails'
 
 const API_BASE = '/api/v1'
 
@@ -8,6 +9,8 @@ function JobQueue({ connectors }) {
   const [queue, setQueue] = useState([])
   const [loading, setLoading] = useState(true)
   const [executingJobs, setExecutingJobs] = useState(new Set())
+  const [selectedJob, setSelectedJob] = useState(null)
+  const [showDetailsModal, setShowDetailsModal] = useState(false)
 
   useEffect(() => {
     fetchQueue()
@@ -29,6 +32,15 @@ function JobQueue({ connectors }) {
   const getConnectorName = (exchangeId) => {
     const connector = connectors.find(c => c.exchange_id === exchangeId)
     return connector ? connector.display_name : exchangeId
+  }
+
+  const getConnector = (exchangeId) => {
+    return connectors.find(c => c.exchange_id === exchangeId)
+  }
+
+  const openJobDetails = (job) => {
+    setSelectedJob(job)
+    setShowDetailsModal(true)
   }
 
   const executeJob = async (id) => {
@@ -150,7 +162,12 @@ function JobQueue({ connectors }) {
               {queue.map(job => (
                 <tr key={job.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{job.symbol}</div>
+                    <button
+                      onClick={() => openJobDetails(job)}
+                      className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                    >
+                      {job.symbol}
+                    </button>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">{job.timeframe}</div>
@@ -195,6 +212,34 @@ function JobQueue({ connectors }) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Job Details Modal */}
+      {showDetailsModal && selectedJob && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-7xl max-h-[95vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900">{selectedJob.symbol}</h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {selectedJob.timeframe} • {getConnectorName(selectedJob.connector_exchange_id)}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowDetailsModal(false)}
+                  className="text-gray-400 hover:text-gray-600 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              <JobDetails job={selectedJob} connector={getConnector(selectedJob.connector_exchange_id)} />
+            </div>
+          </div>
         </div>
       )}
     </div>

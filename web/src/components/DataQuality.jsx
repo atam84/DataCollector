@@ -12,8 +12,10 @@ import {
   CalendarIcon,
   WrenchScrewdriverIcon,
   EyeIcon,
-  ArrowDownIcon
+  ArrowDownIcon,
+  ChevronDownIcon
 } from '@heroicons/react/24/outline'
+import JobDetails from './JobDetails'
 
 const API_BASE = '/api/v1'
 
@@ -54,7 +56,7 @@ const formatDateRange = (start, end) => {
   return `${startDate.toLocaleDateString('en-US', opts)} - ${endDate.toLocaleDateString('en-US', opts)}`
 }
 
-function DataQuality({ jobs }) {
+function DataQuality({ jobs, connectors }) {
   const [summary, setSummary] = useState(null)
   const [qualities, setQualities] = useState([])
   const [initialLoading, setInitialLoading] = useState(true)
@@ -69,17 +71,47 @@ function DataQuality({ jobs }) {
   const [recentChecks, setRecentChecks] = useState([])
   const [startingCheck, setStartingCheck] = useState(false)
   const [showChecks, setShowChecks] = useState(false)
+  const [showCheckDropdown, setShowCheckDropdown] = useState(false)
 
-  // Modal state
+  // Quality modal state
   const [selectedQuality, setSelectedQuality] = useState(null)
   const [showModal, setShowModal] = useState(false)
   const [backfillLoading, setBackfillLoading] = useState(false)
+
+  // Job details modal state
+  const [selectedJob, setSelectedJob] = useState(null)
+  const [showJobModal, setShowJobModal] = useState(false)
 
   // Ref to track if initial load is done
   const initialLoadDone = useRef(false)
 
   // Get unique exchanges from jobs
   const exchanges = [...new Set(jobs.map(j => j.connector_exchange_id))].filter(Boolean)
+
+  // Get job from quality data
+  const getJobFromQuality = (quality) => {
+    return jobs.find(j =>
+      j.connector_exchange_id === quality.exchange_id &&
+      j.symbol === quality.symbol &&
+      j.timeframe === quality.timeframe
+    )
+  }
+
+  // Get connector from exchange ID
+  const getConnector = (exchangeId) => {
+    return connectors?.find(c => c.exchange_id === exchangeId)
+  }
+
+  // Open job details modal
+  const openJobDetails = (quality) => {
+    const job = getJobFromQuality(quality)
+    if (job) {
+      setSelectedJob(job)
+      setShowJobModal(true)
+    } else {
+      alert('Job not found')
+    }
+  }
 
   useEffect(() => {
     const loadData = async () => {
@@ -105,12 +137,24 @@ function DataQuality({ jobs }) {
     if (activeChecks.length > 0) {
       const interval = setInterval(() => {
         fetchActiveChecks()
+        fetchRecentChecks()
         fetchQualities(false)
         fetchSummary(false)
-      }, 5000) // Poll every 5 seconds
+      }, 2000) // Poll every 2 seconds for active checks
       return () => clearInterval(interval)
     }
   }, [activeChecks.length])
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (showCheckDropdown && !e.target.closest('.check-dropdown-container')) {
+        setShowCheckDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showCheckDropdown])
 
   const fetchSummary = async (showLoading = true) => {
     try {
@@ -293,31 +337,55 @@ function DataQuality({ jobs }) {
         </h2>
         <div className="flex items-center space-x-2">
           {/* Start Check Dropdown */}
-          <div className="relative inline-block">
-            <button
-              onClick={() => startQualityCheck('all')}
-              disabled={startingCheck || activeChecks.length > 0}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-l hover:bg-indigo-700 transition disabled:opacity-50 flex items-center"
-              title="Run quality check for all jobs"
-            >
-              <PlayIcon className="w-5 h-5 mr-1" />
-              Check All
-            </button>
-            <select
-              onChange={(e) => {
-                if (e.target.value === 'exchange' && selectedExchange) {
-                  startQualityCheck('exchange', selectedExchange)
-                }
-                e.target.value = ''
-              }}
-              disabled={startingCheck || activeChecks.length > 0}
-              className="px-2 py-2 bg-indigo-500 text-white rounded-r border-l border-indigo-400 hover:bg-indigo-600 disabled:opacity-50 cursor-pointer"
-            >
-              <option value="">...</option>
-              {selectedExchange && (
-                <option value="exchange">Check {selectedExchange}</option>
-              )}
-            </select>
+          <div className="relative inline-block check-dropdown-container">
+            <div className="flex">
+              <button
+                onClick={() => startQualityCheck('all')}
+                disabled={startingCheck || activeChecks.length > 0}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-l hover:bg-indigo-700 transition disabled:opacity-50 flex items-center"
+                title="Run quality check for all jobs"
+              >
+                <PlayIcon className="w-5 h-5 mr-1" />
+                Check All
+              </button>
+              <button
+                onClick={() => setShowCheckDropdown(!showCheckDropdown)}
+                disabled={startingCheck || activeChecks.length > 0}
+                className="px-2 py-2 bg-indigo-500 text-white rounded-r border-l border-indigo-400 hover:bg-indigo-600 disabled:opacity-50 flex items-center"
+              >
+                <ChevronDownIcon className="w-4 h-4" />
+              </button>
+            </div>
+            {showCheckDropdown && (
+              <div className="absolute right-0 mt-1 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-20">
+                <div className="py-1">
+                  <button
+                    onClick={() => {
+                      startQualityCheck('all')
+                      setShowCheckDropdown(false)
+                    }}
+                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                  >
+                    <PlayIcon className="w-4 h-4 mr-2 text-indigo-600" />
+                    Check All Jobs
+                  </button>
+                  <div className="border-t border-gray-100 my-1"></div>
+                  <p className="px-4 py-1 text-xs text-gray-500 font-medium">By Exchange</p>
+                  {exchanges.map(ex => (
+                    <button
+                      key={ex}
+                      onClick={() => {
+                        startQualityCheck('exchange', ex)
+                        setShowCheckDropdown(false)
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+                    >
+                      Check {ex}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Show Checks Button */}
@@ -367,30 +435,62 @@ function DataQuality({ jobs }) {
           {/* Active Checks */}
           {activeChecks.length > 0 && (
             <div className="mb-4">
-              <h4 className="text-sm font-medium text-blue-700 mb-2">Running Checks</h4>
+              <h4 className="text-sm font-medium text-blue-700 mb-2 flex items-center">
+                <ArrowPathIcon className="w-4 h-4 mr-1 animate-spin" />
+                Running Checks ({activeChecks.length})
+              </h4>
               {activeChecks.map(check => (
-                <div key={check.id} className="bg-blue-50 rounded-lg p-3 mb-2 border border-blue-200">
+                <div key={check.id} className="bg-blue-50 rounded-lg p-4 mb-2 border border-blue-200">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="font-medium text-blue-900">
-                      {check.type === 'all' ? 'All Jobs' :
-                       check.type === 'exchange' ? `Exchange: ${check.exchange_id}` :
-                       check.type === 'scheduled' ? 'Scheduled Check' :
-                       `${check.symbol} ${check.timeframe}`}
-                    </span>
-                    <span className={`px-2 py-0.5 text-xs font-medium rounded ${getCheckStatusColor(check.status)}`}>
+                    <div>
+                      <span className="font-medium text-blue-900">
+                        {check.type === 'all' ? 'All Jobs Quality Check' :
+                         check.type === 'exchange' ? `Exchange: ${check.exchange_id}` :
+                         check.type === 'scheduled' ? 'Scheduled Quality Check' :
+                         `${check.symbol} ${check.timeframe}`}
+                      </span>
+                      {check.started_at && (
+                        <span className="text-xs text-blue-600 ml-2">
+                          Started {formatTimeAgo(check.started_at)}
+                        </span>
+                      )}
+                    </div>
+                    <span className={`px-2 py-0.5 text-xs font-medium rounded flex items-center ${getCheckStatusColor(check.status)}`}>
+                      {check.status === 'running' && <ArrowPathIcon className="w-3 h-3 mr-1 animate-spin" />}
                       {check.status}
                     </span>
                   </div>
-                  <div className="w-full bg-blue-200 rounded-full h-2 mb-1">
+                  <div className="w-full bg-blue-200 rounded-full h-3 mb-2">
                     <div
-                      className="bg-blue-600 h-2 rounded-full transition-all duration-500"
-                      style={{ width: `${check.progress || 0}%` }}
-                    />
+                      className="bg-blue-600 h-3 rounded-full transition-all duration-300 flex items-center justify-center"
+                      style={{ width: `${Math.max(check.progress || 0, 5)}%` }}
+                    >
+                      {(check.progress || 0) > 15 && (
+                        <span className="text-[10px] text-white font-medium">{(check.progress || 0).toFixed(0)}%</span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex justify-between text-xs text-blue-700">
-                    <span>{check.completed_jobs || 0} / {check.total_jobs} jobs</span>
-                    <span>{(check.progress || 0).toFixed(1)}%</span>
+                    <span>
+                      <strong>{check.completed_jobs || 0}</strong> of <strong>{check.total_jobs || 0}</strong> jobs analyzed
+                    </span>
+                    <span>
+                      {check.current_job && (
+                        <span className="text-blue-600">
+                          Currently: {check.current_job}
+                        </span>
+                      )}
+                    </span>
                   </div>
+                  {/* Show intermediate results */}
+                  {(check.excellent_count > 0 || check.good_count > 0 || check.fair_count > 0 || check.poor_count > 0) && (
+                    <div className="mt-2 pt-2 border-t border-blue-200 flex space-x-4 text-xs">
+                      <span className="text-green-600">{check.excellent_count || 0} excellent</span>
+                      <span className="text-blue-600">{check.good_count || 0} good</span>
+                      <span className="text-yellow-600">{check.fair_count || 0} fair</span>
+                      <span className="text-red-600">{check.poor_count || 0} poor</span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -574,7 +674,14 @@ function DataQuality({ jobs }) {
                     className={`hover:bg-gray-50 ${isInsufficientData(q) ? 'bg-orange-50' : ''}`}
                   >
                     <td className="px-4 py-3 text-sm text-gray-900">{q.exchange_id}</td>
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{q.symbol}</td>
+                    <td className="px-4 py-3 text-sm font-medium">
+                      <button
+                        onClick={() => openJobDetails(q)}
+                        className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                      >
+                        {q.symbol}
+                      </button>
+                    </td>
                     <td className="px-4 py-3 text-sm text-gray-600">{q.timeframe}</td>
                     <td className="px-4 py-3 text-center">
                       <div className="flex items-center justify-center space-x-1">
@@ -653,14 +760,26 @@ function DataQuality({ jobs }) {
         )}
       </div>
 
-      {/* Detail Modal */}
+      {/* Quality Detail Modal */}
       {showModal && selectedQuality && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center sticky top-0 bg-white">
-              <h3 className="text-lg font-semibold text-gray-900">
-                {selectedQuality.symbol} ({selectedQuality.timeframe}) - {selectedQuality.exchange_id}
-              </h3>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  <button
+                    onClick={() => {
+                      closeModal()
+                      openJobDetails(selectedQuality)
+                    }}
+                    className="text-blue-600 hover:text-blue-800 hover:underline"
+                  >
+                    {selectedQuality.symbol}
+                  </button>
+                  <span className="text-gray-500"> ({selectedQuality.timeframe}) - {selectedQuality.exchange_id}</span>
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">Click symbol to view full job details</p>
+              </div>
               <button onClick={closeModal} className="text-gray-400 hover:text-gray-600">
                 <XCircleIcon className="w-6 h-6" />
               </button>
@@ -817,6 +936,34 @@ function DataQuality({ jobs }) {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Job Details Modal */}
+      {showJobModal && selectedJob && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-7xl max-h-[95vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900">{selectedJob.symbol}</h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {selectedJob.timeframe} • {selectedJob.connector_exchange_id}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowJobModal(false)}
+                  className="text-gray-400 hover:text-gray-600 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              <JobDetails job={selectedJob} connector={getConnector(selectedJob.connector_exchange_id)} />
             </div>
           </div>
         </div>

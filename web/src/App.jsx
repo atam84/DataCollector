@@ -13,6 +13,7 @@ function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
   const [connectors, setConnectors] = useState([])
   const [jobs, setJobs] = useState([])
+  const [qualities, setQualities] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -42,9 +43,19 @@ function App() {
     }
   }
 
+  const fetchQualities = async () => {
+    try {
+      const response = await axios.get(`${API_BASE}/quality`)
+      setQualities(response.data.data || [])
+    } catch (err) {
+      console.error('Failed to fetch qualities:', err)
+    }
+  }
+
   useEffect(() => {
     fetchConnectors()
     fetchJobs()
+    fetchQualities()
   }, [])
 
   return (
@@ -156,7 +167,11 @@ function App() {
             <JobList
               jobs={jobs}
               connectors={connectors}
-              onRefresh={fetchJobs}
+              qualities={qualities}
+              onRefresh={() => {
+                fetchJobs()
+                fetchQualities()
+              }}
               loading={loading}
             />
           )}
@@ -169,7 +184,7 @@ function App() {
             <IndicatorsInfo />
           )}
           {activeTab === 'quality' && (
-            <DataQuality jobs={jobs} />
+            <DataQuality jobs={jobs} connectors={connectors} />
           )}
         </div>
       </div>

@@ -53,7 +53,7 @@ const extractMainError = (error) => {
   return truncateText(error, 80)
 }
 
-function JobList({ jobs, connectors, onRefresh, loading }) {
+function JobList({ jobs, connectors, onRefresh, loading, qualities }) {
   const [showCreateWizard, setShowCreateWizard] = useState(false)
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [selectedJob, setSelectedJob] = useState(null)
@@ -63,12 +63,40 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedConnectors, setSelectedConnectors] = useState([])
   const [showConnectorFilter, setShowConnectorFilter] = useState(false)
+  const [selectedTimeframes, setSelectedTimeframes] = useState([])
+  const [showTimeframeFilter, setShowTimeframeFilter] = useState(false)
+  const [selectedStatuses, setSelectedStatuses] = useState([])
+  const [showStatusFilter, setShowStatusFilter] = useState(false)
   const [executingJobs, setExecutingJobs] = useState(new Set())
   const [selectedJobs, setSelectedJobs] = useState(new Set())
   const [deletingSelected, setDeletingSelected] = useState(false)
   const [showExecutionModal, setShowExecutionModal] = useState(false)
   const [executionResult, setExecutionResult] = useState(null)
   const [copiedToClipboard, setCopiedToClipboard] = useState(false)
+
+  // Get unique timeframes from jobs
+  const timeframes = [...new Set(jobs.map(j => j.timeframe))].filter(Boolean).sort()
+
+  // Get unique statuses from jobs
+  const statuses = [...new Set(jobs.map(j => j.status))].filter(Boolean)
+
+  // Get candle count for a job from quality data
+  const getCandleCount = (job) => {
+    const quality = qualities?.find(q =>
+      q.exchange_id === job.connector_exchange_id &&
+      q.symbol === job.symbol &&
+      q.timeframe === job.timeframe
+    )
+    return quality?.total_candles || null
+  }
+
+  // Format candle count
+  const formatCandleCount = (count) => {
+    if (count === null || count === undefined) return '-'
+    if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M'
+    if (count >= 1000) return (count / 1000).toFixed(1) + 'K'
+    return count.toString()
+  }
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text)
@@ -237,6 +265,26 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
     })
   }
 
+  const toggleTimeframeFilter = (timeframe) => {
+    setSelectedTimeframes(prev => {
+      if (prev.includes(timeframe)) {
+        return prev.filter(tf => tf !== timeframe)
+      } else {
+        return [...prev, timeframe]
+      }
+    })
+  }
+
+  const toggleStatusFilter = (status) => {
+    setSelectedStatuses(prev => {
+      if (prev.includes(status)) {
+        return prev.filter(s => s !== status)
+      } else {
+        return [...prev, status]
+      }
+    })
+  }
+
   const toggleJobSelection = (jobId) => {
     setSelectedJobs(prev => {
       const newSet = new Set(prev)
@@ -257,12 +305,16 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
     }
   }
 
-  // Filter jobs based on search and connector selection
+  // Filter jobs based on search and all filters
   const filteredJobs = jobs.filter(job => {
     const matchesSearch = job.symbol.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesConnector = selectedConnectors.length === 0 ||
                             selectedConnectors.includes(job.connector_exchange_id)
-    return matchesSearch && matchesConnector
+    const matchesTimeframe = selectedTimeframes.length === 0 ||
+                            selectedTimeframes.includes(job.timeframe)
+    const matchesStatus = selectedStatuses.length === 0 ||
+                         selectedStatuses.includes(job.status)
+    return matchesSearch && matchesConnector && matchesTimeframe && matchesStatus
   })
 
   return (
@@ -366,11 +418,117 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
               </div>
             )}
           </div>
+
+          {/* Timeframe Filter */}
+          <div className="relative">
+            <button
+              onClick={() => setShowTimeframeFilter(!showTimeframeFilter)}
+              className={`px-4 py-2 border rounded-lg flex items-center space-x-2 ${
+                selectedTimeframes.length > 0
+                  ? 'border-green-500 bg-green-50 text-green-700'
+                  : 'border-gray-300 text-gray-700'
+              }`}
+            >
+              <ClockIcon className="w-5 h-5" />
+              <span>
+                Timeframe {selectedTimeframes.length > 0 && `(${selectedTimeframes.length})`}
+              </span>
+            </button>
+
+            {showTimeframeFilter && (
+              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-10">
+                <div className="p-3">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm font-medium text-gray-700">Filter by Timeframe</span>
+                    {selectedTimeframes.length > 0 && (
+                      <button
+                        onClick={() => setSelectedTimeframes([])}
+                        className="text-xs text-blue-600 hover:text-blue-800"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {timeframes.map(tf => (
+                      <label
+                        key={tf}
+                        className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedTimeframes.includes(tf)}
+                          onChange={() => toggleTimeframeFilter(tf)}
+                          className="rounded text-green-600 focus:ring-green-500"
+                        />
+                        <span className="text-sm text-gray-700">{tf}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Status Filter */}
+          <div className="relative">
+            <button
+              onClick={() => setShowStatusFilter(!showStatusFilter)}
+              className={`px-4 py-2 border rounded-lg flex items-center space-x-2 ${
+                selectedStatuses.length > 0
+                  ? 'border-orange-500 bg-orange-50 text-orange-700'
+                  : 'border-gray-300 text-gray-700'
+              }`}
+            >
+              <CheckCircleIcon className="w-5 h-5" />
+              <span>
+                Status {selectedStatuses.length > 0 && `(${selectedStatuses.length})`}
+              </span>
+            </button>
+
+            {showStatusFilter && (
+              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-10">
+                <div className="p-3">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm font-medium text-gray-700">Filter by Status</span>
+                    {selectedStatuses.length > 0 && (
+                      <button
+                        onClick={() => setSelectedStatuses([])}
+                        className="text-xs text-blue-600 hover:text-blue-800"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {statuses.map(status => (
+                      <label
+                        key={status}
+                        className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedStatuses.includes(status)}
+                          onChange={() => toggleStatusFilter(status)}
+                          className="rounded text-orange-600 focus:ring-orange-500"
+                        />
+                        <span className={`text-sm ${
+                          status === 'active' ? 'text-green-700' :
+                          status === 'paused' ? 'text-yellow-700' :
+                          'text-red-700'
+                        }`}>{status}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Active Filters Display */}
-        {(searchTerm || selectedConnectors.length > 0) && (
-          <div className="mt-3 flex items-center space-x-2 text-sm text-gray-600">
+        {(searchTerm || selectedConnectors.length > 0 || selectedTimeframes.length > 0 || selectedStatuses.length > 0) && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-600">
             <span>Active filters:</span>
             {searchTerm && (
               <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded">
@@ -382,10 +540,22 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
                 {selectedConnectors.length} connector(s)
               </span>
             )}
+            {selectedTimeframes.length > 0 && (
+              <span className="px-2 py-1 bg-green-100 text-green-700 rounded">
+                {selectedTimeframes.join(', ')}
+              </span>
+            )}
+            {selectedStatuses.length > 0 && (
+              <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded">
+                {selectedStatuses.join(', ')}
+              </span>
+            )}
             <button
               onClick={() => {
                 setSearchTerm('')
                 setSelectedConnectors([])
+                setSelectedTimeframes([])
+                setSelectedStatuses([])
               }}
               className="text-blue-600 hover:text-blue-800"
             >
@@ -452,6 +622,9 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
                 </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Candles
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Last Run
                 </th>
@@ -496,6 +669,15 @@ function JobList({ jobs, connectors, onRefresh, loading }) {
                         : 'bg-red-100 text-red-800'
                     }`}>
                       {job.status}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right">
+                    <span className={`text-sm font-mono ${
+                      getCandleCount(job) === null ? 'text-gray-400' :
+                      getCandleCount(job) < 100 ? 'text-orange-600' :
+                      'text-gray-700'
+                    }`}>
+                      {formatCandleCount(getCandleCount(job))}
                     </span>
                   </td>
                   <td className="px-6 py-4">
