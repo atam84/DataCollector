@@ -1,6 +1,6 @@
 # Development Dockerfile for Backend - with hot reload support
 
-FROM golang:1.23-alpine
+FROM golang:1.24-alpine
 
 # Install development tools
 RUN apk add --no-cache git make
