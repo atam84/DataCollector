@@ -19,6 +19,7 @@ type QualityRepository struct {
 	resultsCollection  *mongo.Collection
 	checksCollection   *mongo.Collection
 	summaryCollection  *mongo.Collection
+	gapFillCollection  *mongo.Collection
 }
 
 // NewQualityRepository creates a new quality repository
@@ -26,6 +27,7 @@ func NewQualityRepository(db *Database) *QualityRepository {
 	resultsCollection := db.GetCollection("quality_results")
 	checksCollection := db.GetCollection("quality_checks")
 	summaryCollection := db.GetCollection("quality_summary")
+	gapFillCollection := db.GetCollection("gap_fill_jobs")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -63,10 +65,28 @@ func NewQualityRepository(db *Database) *QualityRepository {
 		log.Printf("[QUALITY_REPO] Warning: Failed to create summary index: %v", err)
 	}
 
+	// Index for gap fill jobs by status and job_id
+	gapFillStatusIndex := mongo.IndexModel{
+		Keys: bson.D{{Key: "status", Value: 1}},
+	}
+	_, err = gapFillCollection.Indexes().CreateOne(ctx, gapFillStatusIndex)
+	if err != nil {
+		log.Printf("[QUALITY_REPO] Warning: Failed to create gap fill status index: %v", err)
+	}
+
+	gapFillJobIndex := mongo.IndexModel{
+		Keys: bson.D{{Key: "job_id", Value: 1}},
+	}
+	_, err = gapFillCollection.Indexes().CreateOne(ctx, gapFillJobIndex)
+	if err != nil {
+		log.Printf("[QUALITY_REPO] Warning: Failed to create gap fill job index: %v", err)
+	}
+
 	return &QualityRepository{
 		resultsCollection: resultsCollection,
 		checksCollection:  checksCollection,
 		summaryCollection: summaryCollection,
+		gapFillCollection: gapFillCollection,
 	}
 }
 
@@ -378,4 +398,126 @@ func (r *QualityRepository) ComputeSummaryFromResults(ctx context.Context, excha
 	}
 
 	return summary, nil
+}
+
+// === Gap Fill Jobs ===
+
+// CreateGapFillJob creates a new gap fill job
+func (r *QualityRepository) CreateGapFillJob(ctx context.Context, gapFillJob *models.GapFillJob) error {
+	now := time.Now()
+	gapFillJob.CreatedAt = now
+	gapFillJob.UpdatedAt = now
+	gapFillJob.Status = models.GapFillPending
+
+	result, err := r.gapFillCollection.InsertOne(ctx, gapFillJob)
+	if err != nil {
+		return fmt.Errorf("failed to create gap fill job: %w", err)
+	}
+
+	gapFillJob.ID = result.InsertedID.(primitive.ObjectID)
+	return nil
+}
+
+// UpdateGapFillJob updates a gap fill job
+func (r *QualityRepository) UpdateGapFillJob(ctx context.Context, gapFillJob *models.GapFillJob) error {
+	gapFillJob.UpdatedAt = time.Now()
+
+	_, err := r.gapFillCollection.UpdateOne(
+		ctx,
+		bson.M{"_id": gapFillJob.ID},
+		bson.M{"$set": gapFillJob},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update gap fill job: %w", err)
+	}
+
+	return nil
+}
+
+// FindGapFillJob finds a gap fill job by ID
+func (r *QualityRepository) FindGapFillJob(ctx context.Context, id string) (*models.GapFillJob, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid gap fill job ID: %w", err)
+	}
+
+	var gapFillJob models.GapFillJob
+	err = r.gapFillCollection.FindOne(ctx, bson.M{"_id": objID}).Decode(&gapFillJob)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to find gap fill job: %w", err)
+	}
+
+	return &gapFillJob, nil
+}
+
+// FindActiveGapFillJobs finds gap fill jobs that are pending or running
+func (r *QualityRepository) FindActiveGapFillJobs(ctx context.Context) ([]*models.GapFillJob, error) {
+	filter := bson.M{
+		"status": bson.M{
+			"$in": []models.GapFillStatus{
+				models.GapFillPending,
+				models.GapFillRunning,
+			},
+		},
+	}
+
+	cursor, err := r.gapFillCollection.Find(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find active gap fill jobs: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var jobs []*models.GapFillJob
+	if err := cursor.All(ctx, &jobs); err != nil {
+		return nil, fmt.Errorf("failed to decode gap fill jobs: %w", err)
+	}
+
+	return jobs, nil
+}
+
+// FindActiveGapFillJobForJob finds an active gap fill job for a specific data job
+func (r *QualityRepository) FindActiveGapFillJobForJob(ctx context.Context, jobID primitive.ObjectID) (*models.GapFillJob, error) {
+	filter := bson.M{
+		"job_id": jobID,
+		"status": bson.M{
+			"$in": []models.GapFillStatus{
+				models.GapFillPending,
+				models.GapFillRunning,
+			},
+		},
+	}
+
+	var gapFillJob models.GapFillJob
+	err := r.gapFillCollection.FindOne(ctx, filter).Decode(&gapFillJob)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to find active gap fill job: %w", err)
+	}
+
+	return &gapFillJob, nil
+}
+
+// FindRecentGapFillJobsForJob finds recent gap fill jobs for a specific data job
+func (r *QualityRepository) FindRecentGapFillJobsForJob(ctx context.Context, jobID primitive.ObjectID, limit int) ([]*models.GapFillJob, error) {
+	opts := options.Find().
+		SetSort(bson.D{{Key: "created_at", Value: -1}}).
+		SetLimit(int64(limit))
+
+	cursor, err := r.gapFillCollection.Find(ctx, bson.M{"job_id": jobID}, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find recent gap fill jobs: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var jobs []*models.GapFillJob
+	if err := cursor.All(ctx, &jobs); err != nil {
+		return nil, fmt.Errorf("failed to decode gap fill jobs: %w", err)
+	}
+
+	return jobs, nil
 }

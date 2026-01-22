@@ -124,6 +124,44 @@ type QualitySummaryCache struct {
 	UpdatedAt           time.Time `bson:"updated_at" json:"updated_at"`
 }
 
+// GapFillStatus represents the status of a gap fill job
+type GapFillStatus string
+
+const (
+	GapFillPending   GapFillStatus = "pending"
+	GapFillRunning   GapFillStatus = "running"
+	GapFillCompleted GapFillStatus = "completed"
+	GapFillFailed    GapFillStatus = "failed"
+)
+
+// GapFillJob represents a background gap filling job
+type GapFillJob struct {
+	ID             primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	JobID          primitive.ObjectID `bson:"job_id" json:"job_id"`
+	ExchangeID     string             `bson:"exchange_id" json:"exchange_id"`
+	Symbol         string             `bson:"symbol" json:"symbol"`
+	Timeframe      string             `bson:"timeframe" json:"timeframe"`
+	Status         GapFillStatus      `bson:"status" json:"status"`
+	FillAll        bool               `bson:"fill_all" json:"fill_all"`
+
+	// Progress tracking
+	TotalGaps      int     `bson:"total_gaps" json:"total_gaps"`
+	GapsAttempted  int     `bson:"gaps_attempted" json:"gaps_attempted"`
+	GapsFilled     int     `bson:"gaps_filled" json:"gaps_filled"`
+	CandlesFetched int     `bson:"candles_fetched" json:"candles_fetched"`
+	Progress       float64 `bson:"progress" json:"progress"` // 0-100
+
+	// Error tracking
+	LastError string   `bson:"last_error,omitempty" json:"last_error,omitempty"`
+	Errors    []string `bson:"errors,omitempty" json:"errors,omitempty"`
+
+	// Timestamps
+	StartedAt   *time.Time `bson:"started_at,omitempty" json:"started_at,omitempty"`
+	CompletedAt *time.Time `bson:"completed_at,omitempty" json:"completed_at,omitempty"`
+	CreatedAt   time.Time  `bson:"created_at" json:"created_at"`
+	UpdatedAt   time.Time  `bson:"updated_at" json:"updated_at"`
+}
+
 // GapFillRequest represents a request to fill gaps in data
 type GapFillRequest struct {
 	JobID      string    `json:"job_id"`
@@ -132,7 +170,7 @@ type GapFillRequest struct {
 	FillAll    bool      `json:"fill_all"` // If true, attempt to fill all detected gaps
 }
 
-// GapFillResult represents the result of a gap fill operation
+// GapFillResult represents the result of a gap fill operation (legacy, kept for compatibility)
 type GapFillResult struct {
 	JobID          string    `json:"job_id"`
 	GapsAttempted  int       `json:"gaps_attempted"`

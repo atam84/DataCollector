@@ -50,8 +50,7 @@ function JobDetails({ job, connector }) {
   })
   const [exporting, setExporting] = useState(false)
   const [refreshingQuality, setRefreshingQuality] = useState(false)
-  const [fillingGaps, setFillingGaps] = useState(false)
-  const [gapFillResult, setGapFillResult] = useState(null)
+  const [gapFillJob, setGapFillJob] = useState(null)
 
   useEffect(() => {
     if (activeTab === 'data') {
@@ -60,8 +59,22 @@ function JobDetails({ job, connector }) {
       fetchChartData()
     } else if (activeTab === 'quality') {
       fetchQualityData()
+      fetchGapFillStatus()
     }
   }, [activeTab, pagination.page, job.id])
+
+  // Poll for gap fill job status when there's an active job
+  useEffect(() => {
+    if (gapFillJob && (gapFillJob.status === 'pending' || gapFillJob.status === 'running')) {
+      const interval = setInterval(() => {
+        fetchGapFillStatus()
+      }, 2000) // Poll every 2 seconds
+      return () => clearInterval(interval)
+    } else if (gapFillJob && gapFillJob.status === 'completed') {
+      // Refresh quality data when gap fill completes
+      fetchQualityData()
+    }
+  }, [gapFillJob?.status])
 
   const fetchQualityData = async () => {
     setQualityLoading(true)
@@ -73,6 +86,15 @@ function JobDetails({ job, connector }) {
       setQualityData(null)
     } finally {
       setQualityLoading(false)
+    }
+  }
+
+  const fetchGapFillStatus = async () => {
+    try {
+      const response = await axios.get(`${API_BASE}/jobs/${job.id}/quality/fill-gaps/status`)
+      setGapFillJob(response.data.data)
+    } catch (err) {
+      console.error('Failed to fetch gap fill status:', err)
     }
   }
 
@@ -89,21 +111,17 @@ function JobDetails({ job, connector }) {
   }
 
   const fillGaps = async (fillAll = true) => {
-    setFillingGaps(true)
-    setGapFillResult(null)
     try {
       const response = await axios.post(`${API_BASE}/jobs/${job.id}/quality/fill-gaps`, {
         fill_all: fillAll
       })
-      setGapFillResult(response.data.data)
-      // Refresh quality after filling gaps
-      await fetchQualityData()
+      setGapFillJob(response.data.data)
     } catch (err) {
-      alert('Failed to fill gaps: ' + (err.response?.data?.error || err.message))
-    } finally {
-      setFillingGaps(false)
+      alert('Failed to start gap fill: ' + (err.response?.data?.error || err.message))
     }
   }
+
+  const isGapFillRunning = gapFillJob && (gapFillJob.status === 'pending' || gapFillJob.status === 'running')
 
   const fetchOHLCVData = async () => {
     setLoading(true)
@@ -666,40 +684,88 @@ function JobDetails({ job, connector }) {
                 </div>
               </div>
 
-              {/* Gap Fill Result */}
-              {gapFillResult && (
-                <div className="bg-green-50 rounded-lg p-6 border border-green-200">
-                  <h4 className="text-lg font-semibold text-green-900 mb-4 flex items-center">
-                    <CheckCircleIcon className="w-5 h-5 mr-2" />
-                    Gap Fill Result
+              {/* Gap Fill Job Status */}
+              {gapFillJob && (
+                <div className={`rounded-lg p-6 border ${
+                  gapFillJob.status === 'running' || gapFillJob.status === 'pending' ? 'bg-blue-50 border-blue-200' :
+                  gapFillJob.status === 'completed' ? 'bg-green-50 border-green-200' :
+                  'bg-red-50 border-red-200'
+                }`}>
+                  <h4 className={`text-lg font-semibold mb-4 flex items-center ${
+                    gapFillJob.status === 'running' || gapFillJob.status === 'pending' ? 'text-blue-900' :
+                    gapFillJob.status === 'completed' ? 'text-green-900' : 'text-red-900'
+                  }`}>
+                    {isGapFillRunning ? (
+                      <ArrowPathIcon className="w-5 h-5 mr-2 animate-spin" />
+                    ) : gapFillJob.status === 'completed' ? (
+                      <CheckCircleIcon className="w-5 h-5 mr-2" />
+                    ) : (
+                      <ExclamationTriangleIcon className="w-5 h-5 mr-2" />
+                    )}
+                    Gap Fill {gapFillJob.status === 'running' ? 'In Progress' :
+                             gapFillJob.status === 'pending' ? 'Starting...' :
+                             gapFillJob.status === 'completed' ? 'Completed' : 'Failed'}
                   </h4>
+
+                  {/* Progress bar for running jobs */}
+                  {isGapFillRunning && (
+                    <div className="mb-4">
+                      <div className="w-full bg-blue-200 rounded-full h-3 mb-1">
+                        <div
+                          className="bg-blue-600 h-3 rounded-full transition-all duration-500"
+                          style={{ width: `${gapFillJob.progress || 0}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-xs text-blue-700">
+                        <span>{gapFillJob.gaps_attempted || 0} / {gapFillJob.total_gaps} gaps processed</span>
+                        <span>{(gapFillJob.progress || 0).toFixed(1)}%</span>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
-                      <span className="text-sm font-medium text-green-700">Gaps Attempted</span>
-                      <p className="text-xl font-bold text-green-900">{gapFillResult.gaps_attempted || 0}</p>
+                      <span className={`text-sm font-medium ${
+                        isGapFillRunning ? 'text-blue-700' : gapFillJob.status === 'completed' ? 'text-green-700' : 'text-red-700'
+                      }`}>Gaps Attempted</span>
+                      <p className={`text-xl font-bold ${
+                        isGapFillRunning ? 'text-blue-900' : gapFillJob.status === 'completed' ? 'text-green-900' : 'text-red-900'
+                      }`}>{gapFillJob.gaps_attempted || 0}</p>
                     </div>
                     <div>
-                      <span className="text-sm font-medium text-green-700">Gaps Filled</span>
-                      <p className="text-xl font-bold text-green-900">{gapFillResult.gaps_filled || 0}</p>
+                      <span className={`text-sm font-medium ${
+                        isGapFillRunning ? 'text-blue-700' : gapFillJob.status === 'completed' ? 'text-green-700' : 'text-red-700'
+                      }`}>Gaps Filled</span>
+                      <p className={`text-xl font-bold ${
+                        isGapFillRunning ? 'text-blue-900' : gapFillJob.status === 'completed' ? 'text-green-900' : 'text-red-900'
+                      }`}>{gapFillJob.gaps_filled || 0}</p>
                     </div>
                     <div>
-                      <span className="text-sm font-medium text-green-700">Candles Fetched</span>
-                      <p className="text-xl font-bold text-green-900">{gapFillResult.candles_fetched?.toLocaleString() || 0}</p>
+                      <span className={`text-sm font-medium ${
+                        isGapFillRunning ? 'text-blue-700' : gapFillJob.status === 'completed' ? 'text-green-700' : 'text-red-700'
+                      }`}>Candles Fetched</span>
+                      <p className={`text-xl font-bold ${
+                        isGapFillRunning ? 'text-blue-900' : gapFillJob.status === 'completed' ? 'text-green-900' : 'text-red-900'
+                      }`}>{gapFillJob.candles_fetched?.toLocaleString() || 0}</p>
                     </div>
                     <div>
-                      <span className="text-sm font-medium text-green-700">Duration</span>
-                      <p className="text-xl font-bold text-green-900">
-                        {gapFillResult.started_at && gapFillResult.completed_at ?
-                          `${Math.round((new Date(gapFillResult.completed_at) - new Date(gapFillResult.started_at)) / 1000)}s` :
-                          'N/A'}
+                      <span className={`text-sm font-medium ${
+                        isGapFillRunning ? 'text-blue-700' : gapFillJob.status === 'completed' ? 'text-green-700' : 'text-red-700'
+                      }`}>Duration</span>
+                      <p className={`text-xl font-bold ${
+                        isGapFillRunning ? 'text-blue-900' : gapFillJob.status === 'completed' ? 'text-green-900' : 'text-red-900'
+                      }`}>
+                        {gapFillJob.started_at && gapFillJob.completed_at ?
+                          `${Math.round((new Date(gapFillJob.completed_at) - new Date(gapFillJob.started_at)) / 1000)}s` :
+                          isGapFillRunning ? 'Running...' : 'N/A'}
                       </p>
                     </div>
                   </div>
-                  {gapFillResult.errors && gapFillResult.errors.length > 0 && (
+                  {gapFillJob.errors && gapFillJob.errors.length > 0 && (
                     <div className="mt-4">
                       <p className="text-sm font-medium text-orange-700">Warnings:</p>
                       <ul className="text-sm text-orange-600 list-disc list-inside">
-                        {gapFillResult.errors.slice(0, 5).map((err, idx) => (
+                        {gapFillJob.errors.slice(0, 5).map((err, idx) => (
                           <li key={idx}>{err}</li>
                         ))}
                       </ul>
@@ -719,31 +785,24 @@ function JobDetails({ job, connector }) {
                     <div className="flex space-x-2">
                       <button
                         onClick={() => fillGaps(false)}
-                        disabled={fillingGaps}
+                        disabled={isGapFillRunning}
                         className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 transition disabled:opacity-50 flex items-center"
                         title="Fill first 5 gaps"
                       >
-                        <WrenchScrewdriverIcon className={`w-4 h-4 mr-2 ${fillingGaps ? 'animate-spin' : ''}`} />
+                        <WrenchScrewdriverIcon className={`w-4 h-4 mr-2 ${isGapFillRunning ? 'animate-spin' : ''}`} />
                         Fill First 5 Gaps
                       </button>
                       <button
                         onClick={() => fillGaps(true)}
-                        disabled={fillingGaps}
+                        disabled={isGapFillRunning}
                         className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition disabled:opacity-50 flex items-center"
-                        title="Fill all gaps (may take a while)"
+                        title="Fill all gaps (runs in background)"
                       >
-                        <WrenchScrewdriverIcon className={`w-4 h-4 mr-2 ${fillingGaps ? 'animate-spin' : ''}`} />
+                        <WrenchScrewdriverIcon className={`w-4 h-4 mr-2 ${isGapFillRunning ? 'animate-spin' : ''}`} />
                         Fill All Gaps
                       </button>
                     </div>
                   </div>
-
-                  {fillingGaps && (
-                    <div className="mb-4 p-3 bg-orange-100 rounded-lg flex items-center">
-                      <ArrowPathIcon className="w-5 h-5 animate-spin mr-2 text-orange-700" />
-                      <span className="text-orange-800">Fetching missing data from exchange... This may take a while.</span>
-                    </div>
-                  )}
 
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-orange-200">

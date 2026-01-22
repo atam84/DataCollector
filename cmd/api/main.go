@@ -201,6 +201,8 @@ func main() {
 	api.Get("/jobs/:id/quality", qualityHandler.GetJobQuality)
 	api.Post("/jobs/:id/quality/refresh", qualityHandler.RefreshJobQuality)
 	api.Post("/jobs/:id/quality/fill-gaps", qualityHandler.FillJobGaps)
+	api.Get("/jobs/:id/quality/fill-gaps/status", qualityHandler.GetGapFillStatus)
+	api.Get("/jobs/:id/quality/fill-gaps/history", qualityHandler.GetGapFillHistory)
 	api.Get("/quality", qualityHandler.GetCachedResults)
 	api.Get("/quality/summary", qualityHandler.GetCachedSummary)
 	api.Post("/quality/check", qualityHandler.StartQualityCheck)

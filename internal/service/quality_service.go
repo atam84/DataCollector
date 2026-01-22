@@ -325,7 +325,243 @@ func (s *QualityService) GetRecentCheckJobs(ctx context.Context, limit int) ([]*
 	return s.qualityRepo.FindRecentCheckJobs(ctx, limit)
 }
 
-// FillGaps attempts to fill gaps in a job's data
+// StartGapFill starts a background gap fill job
+func (s *QualityService) StartGapFill(ctx context.Context, jobID string, fillAll bool) (*models.GapFillJob, error) {
+	job, err := s.jobRepo.FindByID(ctx, jobID)
+	if err != nil || job == nil {
+		return nil, fmt.Errorf("job not found")
+	}
+
+	// Check if there's already an active gap fill job for this job
+	existingJob, err := s.qualityRepo.FindActiveGapFillJobForJob(ctx, job.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check for existing gap fill job: %w", err)
+	}
+	if existingJob != nil {
+		return existingJob, nil // Return existing job
+	}
+
+	// Get current quality to find gaps
+	result, err := s.GetCachedResult(ctx, job.ConnectorExchangeID, job.Symbol, job.Timeframe)
+	if err != nil || result == nil {
+		// Analyze first if no cached result
+		result, err = s.AnalyzeJob(ctx, job)
+		if err != nil {
+			return nil, fmt.Errorf("failed to analyze job: %w", err)
+		}
+	}
+
+	// Determine number of gaps to fill
+	totalGaps := len(result.Gaps)
+	if !fillAll && totalGaps > 5 {
+		totalGaps = 5
+	}
+
+	// Create gap fill job
+	gapFillJob := &models.GapFillJob{
+		JobID:      job.ID,
+		ExchangeID: job.ConnectorExchangeID,
+		Symbol:     job.Symbol,
+		Timeframe:  job.Timeframe,
+		Status:     models.GapFillPending,
+		FillAll:    fillAll,
+		TotalGaps:  totalGaps,
+	}
+
+	// Save the job
+	if err := s.qualityRepo.CreateGapFillJob(ctx, gapFillJob); err != nil {
+		return nil, fmt.Errorf("failed to create gap fill job: %w", err)
+	}
+
+	// Start background processing
+	go s.processGapFill(gapFillJob.ID.Hex())
+
+	return gapFillJob, nil
+}
+
+// processGapFill processes a gap fill job in the background
+func (s *QualityService) processGapFill(gapFillJobID string) {
+	// Prevent duplicate processing
+	s.mu.Lock()
+	if s.runningChecks[gapFillJobID] {
+		s.mu.Unlock()
+		return
+	}
+	s.runningChecks[gapFillJobID] = true
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		delete(s.runningChecks, gapFillJobID)
+		s.mu.Unlock()
+	}()
+
+	ctx := context.Background()
+
+	// Get gap fill job
+	gapFillJob, err := s.qualityRepo.FindGapFillJob(ctx, gapFillJobID)
+	if err != nil || gapFillJob == nil {
+		log.Printf("[GAP_FILL] Failed to find gap fill job %s: %v", gapFillJobID, err)
+		return
+	}
+
+	// Update status to running
+	now := time.Now()
+	gapFillJob.Status = models.GapFillRunning
+	gapFillJob.StartedAt = &now
+	if err := s.qualityRepo.UpdateGapFillJob(ctx, gapFillJob); err != nil {
+		log.Printf("[GAP_FILL] Failed to update gap fill job status: %v", err)
+	}
+
+	log.Printf("[GAP_FILL] Starting gap fill %s for %s %s %s", gapFillJobID, gapFillJob.ExchangeID, gapFillJob.Symbol, gapFillJob.Timeframe)
+
+	// Get job and connector
+	job, err := s.jobRepo.FindByID(ctx, gapFillJob.JobID.Hex())
+	if err != nil || job == nil {
+		gapFillJob.Status = models.GapFillFailed
+		gapFillJob.LastError = "Job not found"
+		completedAt := time.Now()
+		gapFillJob.CompletedAt = &completedAt
+		s.qualityRepo.UpdateGapFillJob(ctx, gapFillJob)
+		return
+	}
+
+	connector, err := s.connectorRepo.FindByExchangeID(ctx, job.ConnectorExchangeID)
+	if err != nil || connector == nil {
+		gapFillJob.Status = models.GapFillFailed
+		gapFillJob.LastError = "Connector not found"
+		completedAt := time.Now()
+		gapFillJob.CompletedAt = &completedAt
+		s.qualityRepo.UpdateGapFillJob(ctx, gapFillJob)
+		return
+	}
+
+	// Get current quality to find gaps
+	result, err := s.GetCachedResult(ctx, job.ConnectorExchangeID, job.Symbol, job.Timeframe)
+	if err != nil || result == nil {
+		result, err = s.AnalyzeJob(ctx, job)
+		if err != nil {
+			gapFillJob.Status = models.GapFillFailed
+			gapFillJob.LastError = fmt.Sprintf("Failed to analyze job: %v", err)
+			completedAt := time.Now()
+			gapFillJob.CompletedAt = &completedAt
+			s.qualityRepo.UpdateGapFillJob(ctx, gapFillJob)
+			return
+		}
+	}
+
+	if len(result.Gaps) == 0 {
+		gapFillJob.Status = models.GapFillCompleted
+		gapFillJob.Progress = 100
+		completedAt := time.Now()
+		gapFillJob.CompletedAt = &completedAt
+		s.qualityRepo.UpdateGapFillJob(ctx, gapFillJob)
+		log.Printf("[GAP_FILL] No gaps to fill for %s", gapFillJobID)
+		return
+	}
+
+	// Determine which gaps to fill
+	var gapsToFill []models.DataGap
+	if gapFillJob.FillAll {
+		gapsToFill = result.Gaps
+	} else {
+		limit := 5
+		if len(result.Gaps) < limit {
+			limit = len(result.Gaps)
+		}
+		gapsToFill = result.Gaps[:limit]
+	}
+
+	gapFillJob.TotalGaps = len(gapsToFill)
+
+	// Fill each gap
+	for i, gap := range gapsToFill {
+		gapFillJob.GapsAttempted++
+
+		// Fetch data for the gap period
+		candles, err := s.ccxtService.FetchOHLCVRange(
+			ctx,
+			connector,
+			job.Symbol,
+			job.Timeframe,
+			gap.StartTime.UnixMilli(),
+			gap.EndTime.UnixMilli(),
+		)
+
+		if err != nil {
+			gapFillJob.LastError = fmt.Sprintf("Gap %s-%s: %v",
+				gap.StartTime.Format(time.RFC3339), gap.EndTime.Format(time.RFC3339), err)
+			gapFillJob.Errors = append(gapFillJob.Errors, gapFillJob.LastError)
+		} else if len(candles) > 0 {
+			// Store the fetched candles
+			_, err = s.ohlcvRepo.UpsertCandles(ctx, job.ConnectorExchangeID, job.Symbol, job.Timeframe, candles)
+			if err != nil {
+				gapFillJob.LastError = fmt.Sprintf("Failed to store candles: %v", err)
+				gapFillJob.Errors = append(gapFillJob.Errors, gapFillJob.LastError)
+			} else {
+				gapFillJob.CandlesFetched += len(candles)
+				gapFillJob.GapsFilled++
+			}
+		}
+
+		// Update progress
+		gapFillJob.Progress = float64(i+1) / float64(len(gapsToFill)) * 100
+
+		// Update job periodically (every gap or at end)
+		if err := s.qualityRepo.UpdateGapFillJob(ctx, gapFillJob); err != nil {
+			log.Printf("[GAP_FILL] Failed to update gap fill job progress: %v", err)
+		}
+
+		// Small delay between gaps to avoid rate limiting
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// Mark as completed
+	completedAt := time.Now()
+	gapFillJob.Status = models.GapFillCompleted
+	gapFillJob.CompletedAt = &completedAt
+	gapFillJob.Progress = 100
+
+	if err := s.qualityRepo.UpdateGapFillJob(ctx, gapFillJob); err != nil {
+		log.Printf("[GAP_FILL] Failed to mark gap fill job as completed: %v", err)
+	}
+
+	// Re-analyze quality after filling
+	_, _ = s.AnalyzeJob(ctx, job)
+
+	log.Printf("[GAP_FILL] Completed gap fill %s: %d/%d gaps filled, %d candles fetched",
+		gapFillJobID, gapFillJob.GapsFilled, gapFillJob.GapsAttempted, gapFillJob.CandlesFetched)
+}
+
+// GetGapFillJobStatus gets the status of a gap fill job
+func (s *QualityService) GetGapFillJobStatus(ctx context.Context, gapFillJobID string) (*models.GapFillJob, error) {
+	return s.qualityRepo.FindGapFillJob(ctx, gapFillJobID)
+}
+
+// GetActiveGapFillJobs gets all active gap fill jobs
+func (s *QualityService) GetActiveGapFillJobs(ctx context.Context) ([]*models.GapFillJob, error) {
+	return s.qualityRepo.FindActiveGapFillJobs(ctx)
+}
+
+// GetActiveGapFillJobForJob gets the active gap fill job for a specific data job
+func (s *QualityService) GetActiveGapFillJobForJob(ctx context.Context, jobID string) (*models.GapFillJob, error) {
+	job, err := s.jobRepo.FindByID(ctx, jobID)
+	if err != nil || job == nil {
+		return nil, fmt.Errorf("job not found")
+	}
+	return s.qualityRepo.FindActiveGapFillJobForJob(ctx, job.ID)
+}
+
+// GetRecentGapFillJobsForJob gets recent gap fill jobs for a specific data job
+func (s *QualityService) GetRecentGapFillJobsForJob(ctx context.Context, jobID string, limit int) ([]*models.GapFillJob, error) {
+	job, err := s.jobRepo.FindByID(ctx, jobID)
+	if err != nil || job == nil {
+		return nil, fmt.Errorf("job not found")
+	}
+	return s.qualityRepo.FindRecentGapFillJobsForJob(ctx, job.ID, limit)
+}
+
+// FillGaps attempts to fill gaps in a job's data (DEPRECATED - use StartGapFill for background processing)
 func (s *QualityService) FillGaps(ctx context.Context, jobID string, fillAll bool, startTime, endTime time.Time) (*models.GapFillResult, error) {
 	job, err := s.jobRepo.FindByID(ctx, jobID)
 	if err != nil || job == nil {

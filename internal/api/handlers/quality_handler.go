@@ -234,40 +234,94 @@ func (h *QualityHandler) RefreshJobQuality(c *fiber.Ctx) error {
 	})
 }
 
-// FillJobGaps attempts to fill gaps in a job's data
+// FillJobGaps starts a background gap fill job
 // POST /api/v1/jobs/:id/quality/fill-gaps
 func (h *QualityHandler) FillJobGaps(c *fiber.Ctx) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	jobID := c.Params("id")
 
 	var req struct {
-		FillAll   bool       `json:"fill_all"`
-		StartTime *time.Time `json:"start_time"`
-		EndTime   *time.Time `json:"end_time"`
+		FillAll bool `json:"fill_all"`
 	}
 
 	if err := c.BodyParser(&req); err != nil {
 		req.FillAll = true // Default to fill all
 	}
 
-	var startTime, endTime time.Time
-	if req.StartTime != nil {
-		startTime = *req.StartTime
-	}
-	if req.EndTime != nil {
-		endTime = *req.EndTime
+	gapFillJob, err := h.qualityService.StartGapFill(ctx, jobID, req.FillAll)
+	if err != nil {
+		return errors.SendError(c, errors.InternalError("Failed to start gap fill: "+err.Error()))
 	}
 
-	result, err := h.qualityService.FillGaps(ctx, jobID, req.FillAll, startTime, endTime)
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
+		"success": true,
+		"message": "Gap fill started",
+		"data":    gapFillJob,
+	})
+}
+
+// GetGapFillStatus returns the status of a gap fill job
+// GET /api/v1/jobs/:id/quality/fill-gaps/status
+func (h *QualityHandler) GetGapFillStatus(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	jobID := c.Params("id")
+
+	// First check if there's an active gap fill job
+	activeJob, err := h.qualityService.GetActiveGapFillJobForJob(ctx, jobID)
 	if err != nil {
-		return errors.SendError(c, errors.InternalError("Failed to fill gaps: "+err.Error()))
+		return errors.SendError(c, errors.InternalError("Failed to get gap fill status: "+err.Error()))
+	}
+
+	if activeJob != nil {
+		return c.JSON(fiber.Map{
+			"success": true,
+			"data":    activeJob,
+		})
+	}
+
+	// If no active job, get the most recent completed one
+	recentJobs, err := h.qualityService.GetRecentGapFillJobsForJob(ctx, jobID, 1)
+	if err != nil {
+		return errors.SendError(c, errors.InternalError("Failed to get gap fill status: "+err.Error()))
+	}
+
+	if len(recentJobs) > 0 {
+		return c.JSON(fiber.Map{
+			"success": true,
+			"data":    recentJobs[0],
+		})
 	}
 
 	return c.JSON(fiber.Map{
 		"success": true,
-		"message": "Gap fill completed",
-		"data":    result,
+		"data":    nil,
+	})
+}
+
+// GetGapFillHistory returns the gap fill history for a job
+// GET /api/v1/jobs/:id/quality/fill-gaps/history
+func (h *QualityHandler) GetGapFillHistory(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	jobID := c.Params("id")
+	limit := c.QueryInt("limit", 10)
+	if limit > 50 {
+		limit = 50
+	}
+
+	jobs, err := h.qualityService.GetRecentGapFillJobsForJob(ctx, jobID, limit)
+	if err != nil {
+		return errors.SendError(c, errors.InternalError("Failed to get gap fill history: "+err.Error()))
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data":    jobs,
+		"count":   len(jobs),
 	})
 }
