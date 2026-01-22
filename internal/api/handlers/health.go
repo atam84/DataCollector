@@ -20,6 +20,14 @@ func NewHealthHandler(db *repository.Database) *HealthHandler {
 }
 
 // GetHealth returns the health status of the application
+// @Summary Get API health status
+// @Description Returns the health status of the API and connected services
+// @Tags Health
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]interface{} "Health status"
+// @Failure 503 {object} map[string]interface{} "Service unavailable"
+// @Router /health [get]
 func (h *HealthHandler) GetHealth(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -51,6 +59,13 @@ func (h *HealthHandler) GetHealth(c *fiber.Ctx) error {
 }
 
 // GetSupportedExchanges returns the list of exchanges supported by CCXT
+// @Summary Get supported exchanges
+// @Description Returns the list of all cryptocurrency exchanges supported by CCXT
+// @Tags Exchanges
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]interface{} "List of exchanges"
+// @Router /exchanges [get]
 func (h *HealthHandler) GetSupportedExchanges(c *fiber.Ctx) error {
 	exchanges := exchange.GetSupportedExchanges()
 
@@ -61,7 +76,13 @@ func (h *HealthHandler) GetSupportedExchanges(c *fiber.Ctx) error {
 }
 
 // TestExchangeAvailability tests which exchanges can be instantiated
-// This is useful for discovering which exchanges are available in the current CCXT build
+// @Summary Test exchange availability
+// @Description Tests which exchanges can be instantiated in the current CCXT build
+// @Tags Exchanges
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]interface{} "Exchange availability results"
+// @Router /exchanges/test [get]
 func (h *HealthHandler) TestExchangeAvailability(c *fiber.Ctx) error {
 	results := exchange.TestExchangeAvailability()
 
@@ -86,7 +107,13 @@ func (h *HealthHandler) TestExchangeAvailability(c *fiber.Ctx) error {
 }
 
 // GetExchangesMetadata returns metadata for all supported exchanges
-// GET /api/v1/exchanges/metadata
+// @Summary Get all exchanges metadata
+// @Description Returns metadata (timeframes, features, rate limits) for all supported exchanges
+// @Tags Exchanges
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]interface{} "Exchanges metadata"
+// @Router /exchanges/metadata [get]
 func (h *HealthHandler) GetExchangesMetadata(c *fiber.Ctx) error {
 	metadata := exchange.GetAllExchangesMetadata()
 
@@ -97,7 +124,15 @@ func (h *HealthHandler) GetExchangesMetadata(c *fiber.Ctx) error {
 }
 
 // GetExchangeMetadata returns metadata for a specific exchange
-// GET /api/v1/exchanges/:id/metadata
+// @Summary Get exchange metadata
+// @Description Returns metadata (timeframes, features, rate limits) for a specific exchange
+// @Tags Exchanges
+// @Accept json
+// @Produce json
+// @Param id path string true "Exchange ID"
+// @Success 200 {object} map[string]interface{} "Exchange metadata"
+// @Failure 404 {object} map[string]interface{} "Exchange not found"
+// @Router /exchanges/{id}/metadata [get]
 func (h *HealthHandler) GetExchangeMetadata(c *fiber.Ctx) error {
 	exchangeID := c.Params("id")
 
@@ -112,7 +147,13 @@ func (h *HealthHandler) GetExchangeMetadata(c *fiber.Ctx) error {
 }
 
 // RefreshExchangeCache clears and refreshes the exchange metadata cache
-// POST /api/v1/exchanges/refresh
+// @Summary Refresh exchange cache
+// @Description Clears and refreshes the exchange metadata cache
+// @Tags Exchanges
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]interface{} "Cache refreshed"
+// @Router /exchanges/refresh [post]
 func (h *HealthHandler) RefreshExchangeCache(c *fiber.Ctx) error {
 	// Clear the cache
 	exchange.ClearCache()
@@ -128,7 +169,14 @@ func (h *HealthHandler) RefreshExchangeCache(c *fiber.Ctx) error {
 }
 
 // DebugExchange returns detailed debug info for a specific exchange
-// GET /api/v1/exchanges/:id/debug
+// @Summary Debug exchange
+// @Description Returns detailed debug information for a specific exchange
+// @Tags Exchanges
+// @Accept json
+// @Produce json
+// @Param id path string true "Exchange ID"
+// @Success 200 {object} map[string]interface{} "Debug information"
+// @Router /exchanges/{id}/debug [get]
 func (h *HealthHandler) DebugExchange(c *fiber.Ctx) error {
 	exchangeID := c.Params("id")
 
@@ -141,7 +189,16 @@ func (h *HealthHandler) DebugExchange(c *fiber.Ctx) error {
 }
 
 // GetExchangeSymbols returns all available symbols for an exchange
-// GET /api/v1/exchanges/:id/symbols
+// @Summary Get exchange symbols
+// @Description Returns all available trading symbols for a specific exchange
+// @Tags Exchanges
+// @Accept json
+// @Produce json
+// @Param id path string true "Exchange ID"
+// @Param search query string false "Search filter for symbols"
+// @Success 200 {object} map[string]interface{} "List of symbols"
+// @Failure 500 {object} map[string]interface{} "Internal server error"
+// @Router /exchanges/{id}/symbols [get]
 func (h *HealthHandler) GetExchangeSymbols(c *fiber.Ctx) error {
 	exchangeID := c.Params("id")
 
@@ -175,7 +232,17 @@ func (h *HealthHandler) GetExchangeSymbols(c *fiber.Ctx) error {
 }
 
 // ValidateSymbol validates if a symbol exists on an exchange
-// GET /api/v1/exchanges/:id/symbols/validate?symbol=BTC/USDT
+// @Summary Validate symbol
+// @Description Validates if a trading symbol exists on a specific exchange
+// @Tags Exchanges
+// @Accept json
+// @Produce json
+// @Param id path string true "Exchange ID"
+// @Param symbol query string true "Symbol to validate (e.g., BTC/USDT)"
+// @Success 200 {object} map[string]interface{} "Validation result with suggestions"
+// @Failure 400 {object} map[string]interface{} "Missing symbol parameter"
+// @Failure 500 {object} map[string]interface{} "Internal server error"
+// @Router /exchanges/{id}/symbols/validate [get]
 func (h *HealthHandler) ValidateSymbol(c *fiber.Ctx) error {
 	exchangeID := c.Params("id")
 	symbol := c.Query("symbol", "")
@@ -231,7 +298,17 @@ func (h *HealthHandler) ValidateSymbol(c *fiber.Ctx) error {
 }
 
 // ValidateSymbols validates multiple symbols at once
-// POST /api/v1/exchanges/:id/symbols/validate
+// @Summary Validate multiple symbols
+// @Description Validates multiple trading symbols at once on a specific exchange
+// @Tags Exchanges
+// @Accept json
+// @Produce json
+// @Param id path string true "Exchange ID"
+// @Param request body object{symbols=[]string} true "List of symbols to validate"
+// @Success 200 {object} map[string]interface{} "Validation results"
+// @Failure 400 {object} map[string]interface{} "Invalid request"
+// @Failure 500 {object} map[string]interface{} "Internal server error"
+// @Router /exchanges/{id}/symbols/validate [post]
 func (h *HealthHandler) ValidateSymbols(c *fiber.Ctx) error {
 	exchangeID := c.Params("id")
 
@@ -289,7 +366,15 @@ func (h *HealthHandler) ValidateSymbols(c *fiber.Ctx) error {
 }
 
 // GetPopularSymbols returns popular trading pairs that are available on the exchange
-// GET /api/v1/exchanges/:id/symbols/popular
+// @Summary Get popular symbols
+// @Description Returns popular trading pairs that are available on the specific exchange
+// @Tags Exchanges
+// @Accept json
+// @Produce json
+// @Param id path string true "Exchange ID"
+// @Success 200 {object} map[string]interface{} "List of popular symbols"
+// @Failure 500 {object} map[string]interface{} "Internal server error"
+// @Router /exchanges/{id}/symbols/popular [get]
 func (h *HealthHandler) GetPopularSymbols(c *fiber.Ctx) error {
 	exchangeID := c.Params("id")
 

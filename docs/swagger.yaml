@@ -1,0 +1,574 @@
+basePath: /api/v1
+definitions:
+  models.ConnectorCreateRequest:
+    properties:
+      display_name:
+        type: string
+      exchange_id:
+        type: string
+      rate_limit:
+        properties:
+          limit:
+            description: Max requests per period
+            minimum: 1
+            type: integer
+          min_delay_ms:
+            description: 'Min delay between calls (default: calculated from limit/period)'
+            minimum: 100
+            type: integer
+          period_ms:
+            description: Period in milliseconds
+            minimum: 1000
+            type: integer
+        required:
+        - limit
+        - period_ms
+        type: object
+    required:
+    - display_name
+    - exchange_id
+    type: object
+  models.JobCreateRequest:
+    properties:
+      collect_historical:
+        type: boolean
+      connector_exchange_id:
+        type: string
+      depends_on:
+        description: Job IDs (as strings) that must complete first
+        items:
+          type: string
+        type: array
+      status:
+        enum:
+        - active
+        - paused
+        type: string
+      symbol:
+        type: string
+      timeframe:
+        type: string
+    required:
+    - connector_exchange_id
+    - symbol
+    - timeframe
+    type: object
+host: localhost:3000
+info:
+  contact:
+    email: support@datacollector.io
+    name: API Support
+    url: https://github.com/yourusername/datacollector
+  description: Cryptocurrency market data collection service with OHLCV data, technical
+    indicators, and job management.
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: DataCollector API
+  version: 1.0.5
+paths:
+  /connectors:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves all exchange connectors with job counts
+      parameters:
+      - description: Filter by status (active, suspended)
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of connectors
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get all connectors
+      tags:
+      - Connectors
+    post:
+      consumes:
+      - application/json
+      description: Creates a new exchange connector with rate limiting configuration
+      parameters:
+      - description: Connector configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.ConnectorCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Connector created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Connector already exists
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Create a new connector
+      tags:
+      - Connectors
+  /exchanges:
+    get:
+      consumes:
+      - application/json
+      description: Returns the list of all cryptocurrency exchanges supported by CCXT
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of exchanges
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get supported exchanges
+      tags:
+      - Exchanges
+  /exchanges/{id}/debug:
+    get:
+      consumes:
+      - application/json
+      description: Returns detailed debug information for a specific exchange
+      parameters:
+      - description: Exchange ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Debug information
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Debug exchange
+      tags:
+      - Exchanges
+  /exchanges/{id}/metadata:
+    get:
+      consumes:
+      - application/json
+      description: Returns metadata (timeframes, features, rate limits) for a specific
+        exchange
+      parameters:
+      - description: Exchange ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Exchange metadata
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Exchange not found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get exchange metadata
+      tags:
+      - Exchanges
+  /exchanges/{id}/symbols:
+    get:
+      consumes:
+      - application/json
+      description: Returns all available trading symbols for a specific exchange
+      parameters:
+      - description: Exchange ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Search filter for symbols
+        in: query
+        name: search
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of symbols
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get exchange symbols
+      tags:
+      - Exchanges
+  /exchanges/{id}/symbols/popular:
+    get:
+      consumes:
+      - application/json
+      description: Returns popular trading pairs that are available on the specific
+        exchange
+      parameters:
+      - description: Exchange ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of popular symbols
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get popular symbols
+      tags:
+      - Exchanges
+  /exchanges/{id}/symbols/validate:
+    get:
+      consumes:
+      - application/json
+      description: Validates if a trading symbol exists on a specific exchange
+      parameters:
+      - description: Exchange ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Symbol to validate (e.g., BTC/USDT)
+        in: query
+        name: symbol
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Validation result with suggestions
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Missing symbol parameter
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Validate symbol
+      tags:
+      - Exchanges
+    post:
+      consumes:
+      - application/json
+      description: Validates multiple trading symbols at once on a specific exchange
+      parameters:
+      - description: Exchange ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: List of symbols to validate
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            symbols:
+              items:
+                type: string
+              type: array
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Validation results
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Validate multiple symbols
+      tags:
+      - Exchanges
+  /exchanges/metadata:
+    get:
+      consumes:
+      - application/json
+      description: Returns metadata (timeframes, features, rate limits) for all supported
+        exchanges
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Exchanges metadata
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get all exchanges metadata
+      tags:
+      - Exchanges
+  /exchanges/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Clears and refreshes the exchange metadata cache
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Cache refreshed
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Refresh exchange cache
+      tags:
+      - Exchanges
+  /exchanges/test:
+    get:
+      consumes:
+      - application/json
+      description: Tests which exchanges can be instantiated in the current CCXT build
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Exchange availability results
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Test exchange availability
+      tags:
+      - Exchanges
+  /health:
+    get:
+      consumes:
+      - application/json
+      description: Returns the health status of the API and connected services
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Health status
+          schema:
+            additionalProperties: true
+            type: object
+        "503":
+          description: Service unavailable
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get API health status
+      tags:
+      - Health
+  /jobs:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves all data collection jobs with optional filtering
+      parameters:
+      - description: Filter by status (active, paused, error)
+        in: query
+        name: status
+        type: string
+      - description: Filter by exchange ID
+        in: query
+        name: exchange_id
+        type: string
+      - description: Filter by symbol
+        in: query
+        name: symbol
+        type: string
+      - description: Filter by timeframe
+        in: query
+        name: timeframe
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of jobs
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get all jobs
+      tags:
+      - Jobs
+    post:
+      consumes:
+      - application/json
+      description: Creates a new data collection job for a specific symbol and timeframe
+      parameters:
+      - description: Job configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.JobCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Job created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Connector not found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Job already exists
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Create a new job
+      tags:
+      - Jobs
+  /jobs/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves a specific data collection job by its ID
+      parameters:
+      - description: Job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Job details
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid job ID
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Job not found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get a job by ID
+      tags:
+      - Jobs
+  /jobs/{id}/execute:
+    post:
+      consumes:
+      - application/json
+      description: Triggers immediate execution of a data collection job
+      parameters:
+      - description: Job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Execution result
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Job not found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Job is locked
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Execution failed
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Execute a job manually
+      tags:
+      - Jobs
+  /jobs/batch:
+    post:
+      consumes:
+      - application/json
+      description: Creates multiple data collection jobs in a single request (max
+        100)
+      parameters:
+      - description: List of job configurations
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            jobs:
+              items:
+                $ref: '#/definitions/models.JobCreateRequest'
+              type: array
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Jobs created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Create multiple jobs
+      tags:
+      - Jobs
+schemes:
+- http
+- https
+swagger: "2.0"

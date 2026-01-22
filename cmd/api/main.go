@@ -13,12 +13,32 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/gofiber/swagger"
 
 	"github.com/yourusername/datacollector/internal/api/handlers"
 	"github.com/yourusername/datacollector/internal/config"
 	"github.com/yourusername/datacollector/internal/repository"
 	"github.com/yourusername/datacollector/internal/service"
+
+	_ "github.com/yourusername/datacollector/docs"
 )
+
+// @title DataCollector API
+// @version 1.0.5
+// @description Cryptocurrency market data collection service with OHLCV data, technical indicators, and job management.
+// @termsOfService http://swagger.io/terms/
+
+// @contact.name API Support
+// @contact.url https://github.com/yourusername/datacollector
+// @contact.email support@datacollector.io
+
+// @license.name Apache 2.0
+// @license.url http://www.apache.org/licenses/LICENSE-2.0.html
+
+// @host localhost:3000
+// @BasePath /api/v1
+
+// @schemes http https
 
 func main() {
 	// Load configuration
@@ -80,6 +100,9 @@ func main() {
 			"database":  dbStatus,
 		})
 	})
+
+	// Swagger documentation
+	app.Get("/swagger/*", swagger.HandlerDefault)
 
 	// API v1 routes
 	api := app.Group("/api/v1")

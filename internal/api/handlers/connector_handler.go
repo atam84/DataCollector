@@ -42,7 +42,16 @@ func NewConnectorHandlerWithOHLCV(repo *repository.ConnectorRepository, jobRepo 
 }
 
 // CreateConnector creates a new connector
-// POST /api/v1/connectors
+// @Summary Create a new connector
+// @Description Creates a new exchange connector with rate limiting configuration
+// @Tags Connectors
+// @Accept json
+// @Produce json
+// @Param request body models.ConnectorCreateRequest true "Connector configuration"
+// @Success 201 {object} map[string]interface{} "Connector created"
+// @Failure 400 {object} map[string]interface{} "Invalid request"
+// @Failure 409 {object} map[string]interface{} "Connector already exists"
+// @Router /connectors [post]
 func (h *ConnectorHandler) CreateConnector(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -111,7 +120,14 @@ func (h *ConnectorHandler) CreateConnector(c *fiber.Ctx) error {
 }
 
 // GetConnectors retrieves all connectors
-// GET /api/v1/connectors
+// @Summary Get all connectors
+// @Description Retrieves all exchange connectors with job counts
+// @Tags Connectors
+// @Accept json
+// @Produce json
+// @Param status query string false "Filter by status (active, suspended)"
+// @Success 200 {object} map[string]interface{} "List of connectors"
+// @Router /connectors [get]
 func (h *ConnectorHandler) GetConnectors(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

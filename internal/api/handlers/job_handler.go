@@ -36,7 +36,17 @@ func NewJobHandler(jobRepo *repository.JobRepository, connectorRepo *repository.
 }
 
 // CreateJob creates a new job
-// POST /api/v1/jobs
+// @Summary Create a new job
+// @Description Creates a new data collection job for a specific symbol and timeframe
+// @Tags Jobs
+// @Accept json
+// @Produce json
+// @Param request body models.JobCreateRequest true "Job configuration"
+// @Success 201 {object} map[string]interface{} "Job created"
+// @Failure 400 {object} map[string]interface{} "Invalid request"
+// @Failure 404 {object} map[string]interface{} "Connector not found"
+// @Failure 409 {object} map[string]interface{} "Job already exists"
+// @Router /jobs [post]
 func (h *JobHandler) CreateJob(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -119,7 +129,15 @@ func (h *JobHandler) CreateJob(c *fiber.Ctx) error {
 }
 
 // CreateJobsBatch creates multiple jobs at once
-// POST /api/v1/jobs/batch
+// @Summary Create multiple jobs
+// @Description Creates multiple data collection jobs in a single request (max 100)
+// @Tags Jobs
+// @Accept json
+// @Produce json
+// @Param request body object{jobs=[]models.JobCreateRequest} true "List of job configurations"
+// @Success 201 {object} map[string]interface{} "Jobs created"
+// @Failure 400 {object} map[string]interface{} "Invalid request"
+// @Router /jobs/batch [post]
 func (h *JobHandler) CreateJobsBatch(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -209,7 +227,17 @@ func (h *JobHandler) CreateJobsBatch(c *fiber.Ctx) error {
 }
 
 // GetJobs retrieves all jobs
-// GET /api/v1/jobs
+// @Summary Get all jobs
+// @Description Retrieves all data collection jobs with optional filtering
+// @Tags Jobs
+// @Accept json
+// @Produce json
+// @Param status query string false "Filter by status (active, paused, error)"
+// @Param exchange_id query string false "Filter by exchange ID"
+// @Param symbol query string false "Filter by symbol"
+// @Param timeframe query string false "Filter by timeframe"
+// @Success 200 {object} map[string]interface{} "List of jobs"
+// @Router /jobs [get]
 func (h *JobHandler) GetJobs(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -246,7 +274,16 @@ func (h *JobHandler) GetJobs(c *fiber.Ctx) error {
 }
 
 // GetJob retrieves a job by ID
-// GET /api/v1/jobs/:id
+// @Summary Get a job by ID
+// @Description Retrieves a specific data collection job by its ID
+// @Tags Jobs
+// @Accept json
+// @Produce json
+// @Param id path string true "Job ID"
+// @Success 200 {object} map[string]interface{} "Job details"
+// @Failure 400 {object} map[string]interface{} "Invalid job ID"
+// @Failure 404 {object} map[string]interface{} "Job not found"
+// @Router /jobs/{id} [get]
 func (h *JobHandler) GetJob(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -472,7 +509,17 @@ func (h *JobHandler) DeleteJob(c *fiber.Ctx) error {
 }
 
 // ExecuteJob executes a job manually
-// POST /api/v1/jobs/:id/execute
+// @Summary Execute a job manually
+// @Description Triggers immediate execution of a data collection job
+// @Tags Jobs
+// @Accept json
+// @Produce json
+// @Param id path string true "Job ID"
+// @Success 200 {object} map[string]interface{} "Execution result"
+// @Failure 404 {object} map[string]interface{} "Job not found"
+// @Failure 409 {object} map[string]interface{} "Job is locked"
+// @Failure 500 {object} map[string]interface{} "Execution failed"
+// @Router /jobs/{id}/execute [post]
 func (h *JobHandler) ExecuteJob(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
