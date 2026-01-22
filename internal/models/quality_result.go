@@ -180,3 +180,50 @@ type GapFillResult struct {
 	StartedAt      time.Time `json:"started_at"`
 	CompletedAt    time.Time `json:"completed_at"`
 }
+
+// BackfillStatus represents the status of a backfill job
+type BackfillStatus string
+
+const (
+	BackfillPending   BackfillStatus = "pending"
+	BackfillRunning   BackfillStatus = "running"
+	BackfillCompleted BackfillStatus = "completed"
+	BackfillFailed    BackfillStatus = "failed"
+)
+
+// BackfillJob represents a background historical data backfill job
+// This fetches data BEFORE the earliest data point we have
+type BackfillJob struct {
+	ID             primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	JobID          primitive.ObjectID `bson:"job_id" json:"job_id"`
+	ExchangeID     string             `bson:"exchange_id" json:"exchange_id"`
+	Symbol         string             `bson:"symbol" json:"symbol"`
+	Timeframe      string             `bson:"timeframe" json:"timeframe"`
+	Status         BackfillStatus     `bson:"status" json:"status"`
+
+	// Target date range
+	TargetStartDate time.Time `bson:"target_start_date" json:"target_start_date"` // How far back to fetch
+	CurrentOldest   time.Time `bson:"current_oldest" json:"current_oldest"`       // Current oldest data point
+
+	// Progress tracking
+	BatchesFetched int     `bson:"batches_fetched" json:"batches_fetched"`
+	CandlesFetched int     `bson:"candles_fetched" json:"candles_fetched"`
+	Progress       float64 `bson:"progress" json:"progress"` // 0-100
+
+	// Error tracking
+	LastError string   `bson:"last_error,omitempty" json:"last_error,omitempty"`
+	Errors    []string `bson:"errors,omitempty" json:"errors,omitempty"`
+
+	// Timestamps
+	StartedAt   *time.Time `bson:"started_at,omitempty" json:"started_at,omitempty"`
+	CompletedAt *time.Time `bson:"completed_at,omitempty" json:"completed_at,omitempty"`
+	CreatedAt   time.Time  `bson:"created_at" json:"created_at"`
+	UpdatedAt   time.Time  `bson:"updated_at" json:"updated_at"`
+}
+
+// BackfillRequest represents a request to backfill historical data
+type BackfillRequest struct {
+	JobID       string `json:"job_id"`
+	MonthsBack  int    `json:"months_back,omitempty"`  // How many months of data to fetch (default: max available)
+	TargetDate  string `json:"target_date,omitempty"`  // Specific target date (YYYY-MM-DD)
+}

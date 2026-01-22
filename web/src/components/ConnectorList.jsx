@@ -9,7 +9,10 @@ import {
   PencilIcon,
   ClockIcon,
   BoltIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  SignalIcon
 } from '@heroicons/react/24/outline'
 import ConnectorWizard from './ConnectorWizard'
 
@@ -205,165 +208,187 @@ function ConnectorList({ connectors, onRefresh, loading }) {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {connectors.map(connector => (
-            <div key={connector.id} className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition">
-              {/* Header */}
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">{connector.display_name}</h3>
-                  <p className="text-sm text-gray-500">{connector.exchange_id}</p>
-                </div>
-                <span className={`px-2 py-1 text-xs font-medium rounded ${
-                  connector.status === 'active'
-                    ? 'bg-green-100 text-green-800'
-                    : 'bg-gray-100 text-gray-800'
-                }`}>
-                  {connector.status}
-                </span>
-              </div>
+          {connectors.map(connector => {
+            const rlStatus = rateLimitStatus[connector.id]
+            const usagePercent = calculateRateLimitUsage(connector.rate_limit)
+            const isHealthy = connector.status === 'active' && rlStatus?.can_call_now && usagePercent < 80
+            const isWarning = connector.status === 'active' && (usagePercent >= 50 || !rlStatus?.can_call_now)
+            const isError = connector.status !== 'active' || usagePercent >= 80
 
-              {/* Rate Limit Section */}
-              <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                <div className="flex justify-between items-center mb-2">
-                  <p className="text-xs font-medium text-gray-700 flex items-center">
-                    <BoltIcon className="w-4 h-4 mr-1" />
-                    Rate Limit
-                  </p>
-                  <button
-                    onClick={() => setShowRateLimitDetails(showRateLimitDetails === connector.id ? null : connector.id)}
-                    className="text-xs text-blue-600 hover:text-blue-800"
-                  >
-                    {showRateLimitDetails === connector.id ? 'Hide' : 'Details'}
-                  </button>
-                </div>
+            return (
+              <div key={connector.id} className={`bg-white rounded-lg shadow-md hover:shadow-lg transition overflow-hidden ${
+                connector.status !== 'active' ? 'opacity-75' : ''
+              }`}>
+                {/* Health Indicator Bar */}
+                <div className={`h-1.5 ${
+                  isError ? 'bg-red-500' : isWarning ? 'bg-yellow-500' : 'bg-green-500'
+                }`} />
 
-                {/* Usage Bar */}
-                <div className="mb-2">
-                  <div className="flex justify-between items-center mb-1">
-                    <p className="text-xs text-gray-600">
-                      {rateLimitStatus[connector.id]?.usage || connector.rate_limit?.usage || 0} / {connector.rate_limit?.limit || 0} calls
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {((rateLimitStatus[connector.id]?.period_remaining_ms || 0) / 1000).toFixed(0)}s left
-                    </p>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className={`h-2 rounded-full transition-all ${
-                        calculateRateLimitUsage(connector.rate_limit) > 80
-                          ? 'bg-red-500'
-                          : calculateRateLimitUsage(connector.rate_limit) > 50
-                          ? 'bg-yellow-500'
-                          : 'bg-green-500'
-                      }`}
-                      style={{ width: `${calculateRateLimitUsage(connector.rate_limit)}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Status Indicator */}
-                <div className="flex items-center justify-between">
-                  {rateLimitStatus[connector.id]?.can_call_now ? (
-                    <span className="text-xs text-green-600 flex items-center">
-                      <span className="w-2 h-2 bg-green-500 rounded-full mr-1 animate-pulse"></span>
-                      Ready
-                    </span>
-                  ) : (
-                    <span className="text-xs text-orange-600 flex items-center">
-                      <ClockIcon className="w-3 h-3 mr-1" />
-                      Cooling down
-                    </span>
-                  )}
-                  <span className="text-xs text-gray-500">
-                    Min: {(connector.rate_limit?.min_delay_ms || 3000) / 1000}s delay
-                  </span>
-                </div>
-
-                {/* Expanded Details */}
-                {showRateLimitDetails === connector.id && (
-                  <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-gray-600">Period:</span>
-                      <span className="font-medium">{(connector.rate_limit?.period_ms || 60000) / 1000}s</span>
+                <div className="p-5">
+                  {/* Header with Health Badge */}
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-lg font-semibold text-gray-900 truncate">{connector.display_name}</h3>
+                      <p className="text-sm text-gray-500">{connector.exchange_id}</p>
                     </div>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-gray-600">Min Delay:</span>
-                      <span className="font-medium">{connector.rate_limit?.min_delay_ms || 3000}ms</span>
+                    <div className="flex items-center space-x-2 ml-2">
+                      {/* Health Indicator */}
+                      <div className={`flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                        isError ? 'bg-red-100 text-red-700' :
+                        isWarning ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-green-100 text-green-700'
+                      }`}>
+                        {isError ? (
+                          <XCircleIcon className="w-3.5 h-3.5 mr-1" />
+                        ) : isWarning ? (
+                          <ExclamationTriangleIcon className="w-3.5 h-3.5 mr-1" />
+                        ) : (
+                          <CheckCircleIcon className="w-3.5 h-3.5 mr-1" />
+                        )}
+                        {connector.status === 'active' ? (
+                          isError ? 'Overloaded' : isWarning ? 'Busy' : 'Healthy'
+                        ) : 'Suspended'}
+                      </div>
                     </div>
-                    {rateLimitStatus[connector.id]?.last_api_call_at && (
-                      <div className="flex justify-between text-xs">
-                        <span className="text-gray-600">Last Call:</span>
-                        <span className="font-medium">
-                          {new Date(rateLimitStatus[connector.id].last_api_call_at).toLocaleTimeString()}
+                  </div>
+
+                  {/* Rate Limit Section */}
+                  <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+                    <div className="flex justify-between items-center mb-2">
+                      <p className="text-xs font-medium text-gray-700 flex items-center">
+                        <BoltIcon className="w-4 h-4 mr-1" />
+                        Rate Limit
+                      </p>
+                      <button
+                        onClick={() => setShowRateLimitDetails(showRateLimitDetails === connector.id ? null : connector.id)}
+                        className="text-xs text-blue-600 hover:text-blue-800"
+                      >
+                        {showRateLimitDetails === connector.id ? 'Hide' : 'Details'}
+                      </button>
+                    </div>
+
+                    {/* Usage Bar */}
+                    <div className="mb-2">
+                      <div className="flex justify-between items-center mb-1">
+                        <p className="text-xs text-gray-600">
+                          {rlStatus?.usage || connector.rate_limit?.usage || 0} / {connector.rate_limit?.limit || 0} calls
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {((rlStatus?.period_remaining_ms || 0) / 1000).toFixed(0)}s left
+                        </p>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div
+                          className={`h-2 rounded-full transition-all ${
+                            usagePercent > 80 ? 'bg-red-500' :
+                            usagePercent > 50 ? 'bg-yellow-500' : 'bg-green-500'
+                          }`}
+                          style={{ width: `${usagePercent}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Status Indicator */}
+                    <div className="flex items-center justify-between">
+                      {rlStatus?.can_call_now ? (
+                        <span className="text-xs text-green-600 flex items-center">
+                          <span className="w-2 h-2 bg-green-500 rounded-full mr-1 animate-pulse"></span>
+                          Ready
                         </span>
+                      ) : (
+                        <span className="text-xs text-orange-600 flex items-center">
+                          <ClockIcon className="w-3 h-3 mr-1" />
+                          Cooling down
+                        </span>
+                      )}
+                      <span className="text-xs text-gray-500">
+                        Min: {(connector.rate_limit?.min_delay_ms || 3000) / 1000}s delay
+                      </span>
+                    </div>
+
+                    {/* Expanded Details */}
+                    {showRateLimitDetails === connector.id && (
+                      <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-gray-600">Period:</span>
+                          <span className="font-medium">{(connector.rate_limit?.period_ms || 60000) / 1000}s</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-gray-600">Min Delay:</span>
+                          <span className="font-medium">{connector.rate_limit?.min_delay_ms || 3000}ms</span>
+                        </div>
+                        {rlStatus?.last_api_call_at && (
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-600">Last Call:</span>
+                            <span className="font-medium">
+                              {new Date(rlStatus.last_api_call_at).toLocaleTimeString()}
+                            </span>
+                          </div>
+                        )}
+                        <button
+                          onClick={() => resetRateLimitUsage(connector.id)}
+                          className="w-full mt-2 px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition"
+                        >
+                          Reset Usage Counter
+                        </button>
                       </div>
                     )}
+                  </div>
+
+                  {/* Job Count */}
+                  <div className="mb-4 flex items-center justify-between p-2 bg-blue-50 rounded">
+                    <span className="text-xs font-medium text-gray-700">Jobs Attached</span>
+                    <span className="px-2 py-1 text-xs font-bold bg-blue-500 text-white rounded">
+                      {connector.job_count || 0}
+                    </span>
+                  </div>
+
+                  {/* Action Buttons - Single Row, Aligned */}
+                  <div className="flex items-center space-x-2">
                     <button
-                      onClick={() => resetRateLimitUsage(connector.id)}
-                      className="w-full mt-2 px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition"
+                      onClick={() => recalculateConnector(connector.id)}
+                      className="flex-1 h-9 bg-indigo-500 text-white text-sm rounded hover:bg-indigo-600 transition flex items-center justify-center disabled:opacity-50"
+                      disabled={recalculating.has(connector.id)}
+                      title="Recalculate all indicators"
                     >
-                      Reset Usage Counter
+                      <ArrowPathIcon className={`w-4 h-4 ${recalculating.has(connector.id) ? 'animate-spin' : ''}`} />
+                    </button>
+                    <button
+                      onClick={() => openEditRateLimit(connector)}
+                      className="flex-1 h-9 bg-cyan-500 text-white text-sm rounded hover:bg-cyan-600 transition flex items-center justify-center"
+                      title="Edit rate limit settings"
+                    >
+                      <PencilIcon className="w-4 h-4" />
+                    </button>
+                    {connector.status === 'active' ? (
+                      <button
+                        onClick={() => suspendConnector(connector.id)}
+                        className="flex-1 h-9 bg-yellow-500 text-white text-sm rounded hover:bg-yellow-600 transition flex items-center justify-center"
+                        title="Suspend connector"
+                      >
+                        <PauseIcon className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => resumeConnector(connector.id)}
+                        className="flex-1 h-9 bg-green-500 text-white text-sm rounded hover:bg-green-600 transition flex items-center justify-center"
+                        title="Resume connector"
+                      >
+                        <PlayIcon className="w-4 h-4" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => deleteConnector(connector.id)}
+                      className="flex-1 h-9 bg-red-500 text-white text-sm rounded hover:bg-red-600 transition flex items-center justify-center"
+                      title="Delete connector"
+                    >
+                      <TrashIcon className="w-4 h-4" />
                     </button>
                   </div>
-                )}
+                </div>
               </div>
-
-              {/* Job Count */}
-              <div className="mb-4 flex items-center justify-between p-2 bg-blue-50 rounded">
-                <span className="text-xs font-medium text-gray-700">Jobs Attached</span>
-                <span className="px-2 py-1 text-xs font-bold bg-blue-500 text-white rounded">
-                  {connector.job_count || 0}
-                </span>
-              </div>
-
-              {/* Actions Row 1 */}
-              <div className="flex space-x-2 mb-2">
-                <button
-                  onClick={() => recalculateConnector(connector.id)}
-                  className="flex-1 py-2 bg-indigo-500 text-white text-sm rounded hover:bg-indigo-600 transition flex items-center justify-center disabled:opacity-50"
-                  disabled={recalculating.has(connector.id)}
-                  title="Recalculate all indicators"
-                >
-                  <ArrowPathIcon className={`w-5 h-5 ${recalculating.has(connector.id) ? 'animate-spin' : ''}`} />
-                </button>
-                <button
-                  onClick={() => openEditRateLimit(connector)}
-                  className="flex-1 py-2 bg-cyan-500 text-white text-sm rounded hover:bg-cyan-600 transition flex items-center justify-center"
-                  title="Edit rate limit"
-                >
-                  <PencilIcon className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Actions Row 2 */}
-              <div className="flex space-x-2">
-                {connector.status === 'active' ? (
-                  <button
-                    onClick={() => suspendConnector(connector.id)}
-                    className="flex-1 py-2 bg-yellow-500 text-white text-sm rounded hover:bg-yellow-600 transition flex items-center justify-center"
-                    title="Suspend connector"
-                  >
-                    <PauseIcon className="w-5 h-5" />
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => resumeConnector(connector.id)}
-                    className="flex-1 py-2 bg-green-500 text-white text-sm rounded hover:bg-green-600 transition flex items-center justify-center"
-                    title="Resume connector"
-                  >
-                    <PlayIcon className="w-5 h-5" />
-                  </button>
-                )}
-                <button
-                  onClick={() => deleteConnector(connector.id)}
-                  className="flex-1 py-2 bg-red-500 text-white text-sm rounded hover:bg-red-600 transition flex items-center justify-center"
-                  title="Delete connector"
-                >
-                  <TrashIcon className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 

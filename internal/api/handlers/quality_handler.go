@@ -325,3 +325,96 @@ func (h *QualityHandler) GetGapFillHistory(c *fiber.Ctx) error {
 		"count":   len(jobs),
 	})
 }
+
+// StartBackfill starts a background backfill job to fetch historical data
+// POST /api/v1/jobs/:id/quality/backfill
+func (h *QualityHandler) StartBackfill(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	jobID := c.Params("id")
+
+	var req struct {
+		MonthsBack int    `json:"months_back"`  // How many months back to fetch
+		TargetDate string `json:"target_date"`  // Specific target date (YYYY-MM-DD)
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		// Default values will be used
+	}
+
+	backfillJob, err := h.qualityService.StartBackfill(ctx, jobID, req.MonthsBack, req.TargetDate)
+	if err != nil {
+		return errors.SendError(c, errors.InternalError("Failed to start backfill: "+err.Error()))
+	}
+
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
+		"success": true,
+		"message": "Backfill started",
+		"data":    backfillJob,
+	})
+}
+
+// GetBackfillStatus returns the status of a backfill job
+// GET /api/v1/jobs/:id/quality/backfill/status
+func (h *QualityHandler) GetBackfillStatus(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	jobID := c.Params("id")
+
+	// First check if there's an active backfill job
+	activeJob, err := h.qualityService.GetActiveBackfillJobForJob(ctx, jobID)
+	if err != nil {
+		return errors.SendError(c, errors.InternalError("Failed to get backfill status: "+err.Error()))
+	}
+
+	if activeJob != nil {
+		return c.JSON(fiber.Map{
+			"success": true,
+			"data":    activeJob,
+		})
+	}
+
+	// If no active job, get the most recent completed one
+	recentJobs, err := h.qualityService.GetRecentBackfillJobsForJob(ctx, jobID, 1)
+	if err != nil {
+		return errors.SendError(c, errors.InternalError("Failed to get backfill status: "+err.Error()))
+	}
+
+	if len(recentJobs) > 0 {
+		return c.JSON(fiber.Map{
+			"success": true,
+			"data":    recentJobs[0],
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data":    nil,
+	})
+}
+
+// GetBackfillHistory returns the backfill history for a job
+// GET /api/v1/jobs/:id/quality/backfill/history
+func (h *QualityHandler) GetBackfillHistory(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	jobID := c.Params("id")
+	limit := c.QueryInt("limit", 10)
+	if limit > 50 {
+		limit = 50
+	}
+
+	jobs, err := h.qualityService.GetRecentBackfillJobsForJob(ctx, jobID, limit)
+	if err != nil {
+		return errors.SendError(c, errors.InternalError("Failed to get backfill history: "+err.Error()))
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data":    jobs,
+		"count":   len(jobs),
+	})
+}

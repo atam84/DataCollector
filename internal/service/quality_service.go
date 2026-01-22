@@ -665,3 +665,264 @@ func (s *QualityService) RunScheduledCheck(ctx context.Context) error {
 
 	return nil
 }
+
+// StartBackfill starts a background backfill job to fetch historical data
+func (s *QualityService) StartBackfill(ctx context.Context, jobID string, monthsBack int, targetDateStr string) (*models.BackfillJob, error) {
+	job, err := s.jobRepo.FindByID(ctx, jobID)
+	if err != nil || job == nil {
+		return nil, fmt.Errorf("job not found")
+	}
+
+	// Check if there's already an active backfill job for this job
+	existingJob, err := s.qualityRepo.FindActiveBackfillJobForJob(ctx, job.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check for existing backfill job: %w", err)
+	}
+	if existingJob != nil {
+		return existingJob, nil // Return existing job
+	}
+
+	// Get current data to determine oldest data point
+	result, err := s.GetCachedResult(ctx, job.ConnectorExchangeID, job.Symbol, job.Timeframe)
+	if err != nil || result == nil {
+		// Analyze first if no cached result
+		result, err = s.AnalyzeJob(ctx, job)
+		if err != nil {
+			return nil, fmt.Errorf("failed to analyze job: %w", err)
+		}
+	}
+
+	// Determine target start date
+	var targetStartDate time.Time
+	if targetDateStr != "" {
+		// Parse specific target date
+		targetStartDate, err = time.Parse("2006-01-02", targetDateStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid target date format (use YYYY-MM-DD): %w", err)
+		}
+	} else if monthsBack > 0 {
+		// Calculate based on months back
+		targetStartDate = time.Now().AddDate(0, -monthsBack, 0)
+	} else {
+		// Default: try to get maximum available (5 years back)
+		targetStartDate = time.Now().AddDate(-5, 0, 0)
+	}
+
+	// Create backfill job
+	backfillJob := &models.BackfillJob{
+		JobID:           job.ID,
+		ExchangeID:      job.ConnectorExchangeID,
+		Symbol:          job.Symbol,
+		Timeframe:       job.Timeframe,
+		Status:          models.BackfillPending,
+		TargetStartDate: targetStartDate,
+		CurrentOldest:   result.DataPeriodStart,
+	}
+
+	// Save the job
+	if err := s.qualityRepo.CreateBackfillJob(ctx, backfillJob); err != nil {
+		return nil, fmt.Errorf("failed to create backfill job: %w", err)
+	}
+
+	// Start background processing
+	go s.processBackfill(backfillJob.ID.Hex())
+
+	return backfillJob, nil
+}
+
+// processBackfill processes a backfill job in the background
+func (s *QualityService) processBackfill(backfillJobID string) {
+	// Prevent duplicate processing
+	s.mu.Lock()
+	if s.runningChecks[backfillJobID] {
+		s.mu.Unlock()
+		return
+	}
+	s.runningChecks[backfillJobID] = true
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		delete(s.runningChecks, backfillJobID)
+		s.mu.Unlock()
+	}()
+
+	ctx := context.Background()
+
+	// Get backfill job
+	backfillJob, err := s.qualityRepo.FindBackfillJob(ctx, backfillJobID)
+	if err != nil || backfillJob == nil {
+		log.Printf("[BACKFILL] Failed to find backfill job %s: %v", backfillJobID, err)
+		return
+	}
+
+	// Update status to running
+	now := time.Now()
+	backfillJob.Status = models.BackfillRunning
+	backfillJob.StartedAt = &now
+	if err := s.qualityRepo.UpdateBackfillJob(ctx, backfillJob); err != nil {
+		log.Printf("[BACKFILL] Failed to update backfill job status: %v", err)
+	}
+
+	log.Printf("[BACKFILL] Starting backfill %s for %s %s %s (target: %s)",
+		backfillJobID, backfillJob.ExchangeID, backfillJob.Symbol, backfillJob.Timeframe,
+		backfillJob.TargetStartDate.Format("2006-01-02"))
+
+	// Get job and connector
+	job, err := s.jobRepo.FindByID(ctx, backfillJob.JobID.Hex())
+	if err != nil || job == nil {
+		backfillJob.Status = models.BackfillFailed
+		backfillJob.LastError = "Job not found"
+		completedAt := time.Now()
+		backfillJob.CompletedAt = &completedAt
+		s.qualityRepo.UpdateBackfillJob(ctx, backfillJob)
+		return
+	}
+
+	connector, err := s.connectorRepo.FindByExchangeID(ctx, job.ConnectorExchangeID)
+	if err != nil || connector == nil {
+		backfillJob.Status = models.BackfillFailed
+		backfillJob.LastError = "Connector not found"
+		completedAt := time.Now()
+		backfillJob.CompletedAt = &completedAt
+		s.qualityRepo.UpdateBackfillJob(ctx, backfillJob)
+		return
+	}
+
+	// Calculate total expected batches for progress tracking
+	totalDuration := backfillJob.CurrentOldest.Sub(backfillJob.TargetStartDate)
+	tfDurationMs := models.GetTimeframeDurationMinutes(backfillJob.Timeframe) * 60 * 1000
+	expectedCandles := int(totalDuration.Milliseconds() / int64(tfDurationMs))
+	expectedBatches := (expectedCandles / 500) + 1 // Assuming ~500 candles per batch
+
+	log.Printf("[BACKFILL] Expected ~%d candles, ~%d batches", expectedCandles, expectedBatches)
+
+	// Fetch historical data in batches, working backwards from current oldest
+	currentEndTime := backfillJob.CurrentOldest
+	batchSize := 500 // candles per batch
+	maxBatches := 1000 // Safety limit
+
+	for batch := 0; batch < maxBatches; batch++ {
+		// Check if we've reached the target date
+		if currentEndTime.Before(backfillJob.TargetStartDate) || currentEndTime.Equal(backfillJob.TargetStartDate) {
+			log.Printf("[BACKFILL] Reached target date, stopping")
+			break
+		}
+
+		// Calculate start time for this batch
+		batchDurationMs := int64(batchSize) * int64(tfDurationMs)
+		currentStartTime := currentEndTime.Add(-time.Duration(batchDurationMs) * time.Millisecond)
+
+		// Don't go before target date
+		if currentStartTime.Before(backfillJob.TargetStartDate) {
+			currentStartTime = backfillJob.TargetStartDate
+		}
+
+		log.Printf("[BACKFILL] Fetching batch %d: %s to %s",
+			batch+1, currentStartTime.Format("2006-01-02"), currentEndTime.Format("2006-01-02"))
+
+		// Fetch data for this range
+		candles, err := s.ccxtService.FetchOHLCVRange(
+			ctx,
+			connector,
+			job.Symbol,
+			job.Timeframe,
+			currentStartTime.UnixMilli(),
+			currentEndTime.UnixMilli(),
+		)
+
+		if err != nil {
+			errMsg := fmt.Sprintf("Batch %d: %v", batch+1, err)
+			backfillJob.LastError = errMsg
+			backfillJob.Errors = append(backfillJob.Errors, errMsg)
+			log.Printf("[BACKFILL] Error fetching batch: %v", err)
+
+			// Continue to next batch on error (some exchanges have limited history)
+			currentEndTime = currentStartTime
+			continue
+		}
+
+		if len(candles) > 0 {
+			// Store the fetched candles
+			_, err = s.ohlcvRepo.UpsertCandles(ctx, job.ConnectorExchangeID, job.Symbol, job.Timeframe, candles)
+			if err != nil {
+				errMsg := fmt.Sprintf("Failed to store candles: %v", err)
+				backfillJob.LastError = errMsg
+				backfillJob.Errors = append(backfillJob.Errors, errMsg)
+				log.Printf("[BACKFILL] Error storing candles: %v", err)
+			} else {
+				backfillJob.CandlesFetched += len(candles)
+				log.Printf("[BACKFILL] Stored %d candles", len(candles))
+			}
+		} else {
+			log.Printf("[BACKFILL] No candles returned for this batch, exchange may not have data this far back")
+			// If no data returned, likely reached the exchange's history limit
+			break
+		}
+
+		backfillJob.BatchesFetched++
+
+		// Update progress
+		if expectedBatches > 0 {
+			backfillJob.Progress = float64(backfillJob.BatchesFetched) / float64(expectedBatches) * 100
+			if backfillJob.Progress > 100 {
+				backfillJob.Progress = 99 // Don't show 100% until actually done
+			}
+		}
+
+		// Update job periodically
+		if err := s.qualityRepo.UpdateBackfillJob(ctx, backfillJob); err != nil {
+			log.Printf("[BACKFILL] Failed to update backfill job progress: %v", err)
+		}
+
+		// Move to earlier time range
+		currentEndTime = currentStartTime
+
+		// Small delay between batches
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// Mark as completed
+	completedAt := time.Now()
+	backfillJob.Status = models.BackfillCompleted
+	backfillJob.CompletedAt = &completedAt
+	backfillJob.Progress = 100
+
+	if err := s.qualityRepo.UpdateBackfillJob(ctx, backfillJob); err != nil {
+		log.Printf("[BACKFILL] Failed to mark backfill job as completed: %v", err)
+	}
+
+	// Re-analyze quality after backfill
+	_, _ = s.AnalyzeJob(ctx, job)
+
+	log.Printf("[BACKFILL] Completed backfill %s: %d batches, %d candles fetched",
+		backfillJobID, backfillJob.BatchesFetched, backfillJob.CandlesFetched)
+}
+
+// GetBackfillJobStatus gets the status of a backfill job
+func (s *QualityService) GetBackfillJobStatus(ctx context.Context, backfillJobID string) (*models.BackfillJob, error) {
+	return s.qualityRepo.FindBackfillJob(ctx, backfillJobID)
+}
+
+// GetActiveBackfillJobs gets all active backfill jobs
+func (s *QualityService) GetActiveBackfillJobs(ctx context.Context) ([]*models.BackfillJob, error) {
+	return s.qualityRepo.FindActiveBackfillJobs(ctx)
+}
+
+// GetActiveBackfillJobForJob gets the active backfill job for a specific data job
+func (s *QualityService) GetActiveBackfillJobForJob(ctx context.Context, jobID string) (*models.BackfillJob, error) {
+	job, err := s.jobRepo.FindByID(ctx, jobID)
+	if err != nil || job == nil {
+		return nil, fmt.Errorf("job not found")
+	}
+	return s.qualityRepo.FindActiveBackfillJobForJob(ctx, job.ID)
+}
+
+// GetRecentBackfillJobsForJob gets recent backfill jobs for a specific data job
+func (s *QualityService) GetRecentBackfillJobsForJob(ctx context.Context, jobID string, limit int) ([]*models.BackfillJob, error) {
+	job, err := s.jobRepo.FindByID(ctx, jobID)
+	if err != nil || job == nil {
+		return nil, fmt.Errorf("job not found")
+	}
+	return s.qualityRepo.FindRecentBackfillJobsForJob(ctx, job.ID, limit)
+}

@@ -11,7 +11,8 @@ import {
   ExclamationTriangleIcon,
   ClockIcon,
   WrenchScrewdriverIcon,
-  CalendarIcon
+  CalendarIcon,
+  CloudArrowDownIcon
 } from '@heroicons/react/24/outline'
 import CandlestickChart from './CandlestickChart'
 
@@ -51,6 +52,7 @@ function JobDetails({ job, connector }) {
   const [exporting, setExporting] = useState(false)
   const [refreshingQuality, setRefreshingQuality] = useState(false)
   const [gapFillJob, setGapFillJob] = useState(null)
+  const [backfillJob, setBackfillJob] = useState(null)
 
   useEffect(() => {
     if (activeTab === 'data') {
@@ -60,6 +62,7 @@ function JobDetails({ job, connector }) {
     } else if (activeTab === 'quality') {
       fetchQualityData()
       fetchGapFillStatus()
+      fetchBackfillStatus()
     }
   }, [activeTab, pagination.page, job.id])
 
@@ -75,6 +78,19 @@ function JobDetails({ job, connector }) {
       fetchQualityData()
     }
   }, [gapFillJob?.status])
+
+  // Poll for backfill job status when there's an active job
+  useEffect(() => {
+    if (backfillJob && (backfillJob.status === 'pending' || backfillJob.status === 'running')) {
+      const interval = setInterval(() => {
+        fetchBackfillStatus()
+      }, 2000) // Poll every 2 seconds
+      return () => clearInterval(interval)
+    } else if (backfillJob && backfillJob.status === 'completed') {
+      // Refresh quality data when backfill completes
+      fetchQualityData()
+    }
+  }, [backfillJob?.status])
 
   const fetchQualityData = async () => {
     setQualityLoading(true)
@@ -121,7 +137,28 @@ function JobDetails({ job, connector }) {
     }
   }
 
+  const fetchBackfillStatus = async () => {
+    try {
+      const response = await axios.get(`${API_BASE}/jobs/${job.id}/quality/backfill/status`)
+      setBackfillJob(response.data.data)
+    } catch (err) {
+      console.error('Failed to fetch backfill status:', err)
+    }
+  }
+
+  const startBackfill = async (monthsBack = 0) => {
+    try {
+      const response = await axios.post(`${API_BASE}/jobs/${job.id}/quality/backfill`, {
+        months_back: monthsBack
+      })
+      setBackfillJob(response.data.data)
+    } catch (err) {
+      alert('Failed to start backfill: ' + (err.response?.data?.error || err.message))
+    }
+  }
+
   const isGapFillRunning = gapFillJob && (gapFillJob.status === 'pending' || gapFillJob.status === 'running')
+  const isBackfillRunning = backfillJob && (backfillJob.status === 'pending' || backfillJob.status === 'running')
 
   const fetchOHLCVData = async () => {
     setLoading(true)
@@ -654,6 +691,159 @@ function JobDetails({ job, connector }) {
                   </p>
                   <p className="text-sm text-gray-600">Gaps Detected</p>
                 </div>
+              </div>
+
+              {/* Historical Data Backfill */}
+              <div className="bg-purple-50 rounded-lg p-6 border border-purple-200">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h4 className="text-lg font-semibold text-purple-900 flex items-center">
+                      <CloudArrowDownIcon className="w-5 h-5 mr-2" />
+                      Historical Data Backfill
+                    </h4>
+                    <p className="text-sm text-purple-700 mt-1">
+                      Fetch older historical data that predates your current dataset.
+                      {qualityData.data_period_start && (
+                        <span className="block mt-1">
+                          Current oldest data: <strong>{new Date(qualityData.data_period_start).toLocaleDateString()}</strong>
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => startBackfill(6)}
+                      disabled={isBackfillRunning}
+                      className="px-3 py-2 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition disabled:opacity-50 flex items-center"
+                      title="Fetch 6 months of historical data"
+                    >
+                      <CloudArrowDownIcon className={`w-4 h-4 mr-1 ${isBackfillRunning ? 'animate-pulse' : ''}`} />
+                      6 Months
+                    </button>
+                    <button
+                      onClick={() => startBackfill(12)}
+                      disabled={isBackfillRunning}
+                      className="px-3 py-2 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition disabled:opacity-50 flex items-center"
+                      title="Fetch 1 year of historical data"
+                    >
+                      <CloudArrowDownIcon className={`w-4 h-4 mr-1 ${isBackfillRunning ? 'animate-pulse' : ''}`} />
+                      1 Year
+                    </button>
+                    <button
+                      onClick={() => startBackfill(36)}
+                      disabled={isBackfillRunning}
+                      className="px-3 py-2 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition disabled:opacity-50 flex items-center"
+                      title="Fetch 3 years of historical data"
+                    >
+                      <CloudArrowDownIcon className={`w-4 h-4 mr-1 ${isBackfillRunning ? 'animate-pulse' : ''}`} />
+                      3 Years
+                    </button>
+                    <button
+                      onClick={() => startBackfill(0)}
+                      disabled={isBackfillRunning}
+                      className="px-3 py-2 bg-purple-800 text-white text-sm rounded hover:bg-purple-900 transition disabled:opacity-50 flex items-center"
+                      title="Fetch maximum available historical data"
+                    >
+                      <CloudArrowDownIcon className={`w-4 h-4 mr-1 ${isBackfillRunning ? 'animate-pulse' : ''}`} />
+                      Max Available
+                    </button>
+                  </div>
+                </div>
+
+                {/* Backfill Job Status */}
+                {backfillJob && (
+                  <div className={`mt-4 p-4 rounded-lg ${
+                    isBackfillRunning ? 'bg-purple-100 border border-purple-300' :
+                    backfillJob.status === 'completed' ? 'bg-green-100 border border-green-300' :
+                    'bg-red-100 border border-red-300'
+                  }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`font-semibold flex items-center ${
+                        isBackfillRunning ? 'text-purple-900' :
+                        backfillJob.status === 'completed' ? 'text-green-900' : 'text-red-900'
+                      }`}>
+                        {isBackfillRunning ? (
+                          <ArrowPathIcon className="w-4 h-4 mr-2 animate-spin" />
+                        ) : backfillJob.status === 'completed' ? (
+                          <CheckCircleIcon className="w-4 h-4 mr-2" />
+                        ) : (
+                          <ExclamationTriangleIcon className="w-4 h-4 mr-2" />
+                        )}
+                        Backfill {isBackfillRunning ? 'In Progress' :
+                                 backfillJob.status === 'completed' ? 'Completed' : 'Failed'}
+                      </span>
+                      <span className={`text-sm ${
+                        isBackfillRunning ? 'text-purple-700' :
+                        backfillJob.status === 'completed' ? 'text-green-700' : 'text-red-700'
+                      }`}>
+                        Target: {backfillJob.target_start_date ? new Date(backfillJob.target_start_date).toLocaleDateString() : 'N/A'}
+                      </span>
+                    </div>
+
+                    {/* Progress bar for running jobs */}
+                    {isBackfillRunning && (
+                      <div className="mb-3">
+                        <div className="w-full bg-purple-200 rounded-full h-2.5 mb-1">
+                          <div
+                            className="bg-purple-600 h-2.5 rounded-full transition-all duration-500"
+                            style={{ width: `${backfillJob.progress || 0}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-xs text-purple-700">
+                          <span>{backfillJob.batches_fetched || 0} batches fetched</span>
+                          <span>{(backfillJob.progress || 0).toFixed(1)}%</span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-3 gap-4 text-center">
+                      <div>
+                        <p className={`text-xl font-bold ${
+                          isBackfillRunning ? 'text-purple-900' :
+                          backfillJob.status === 'completed' ? 'text-green-900' : 'text-red-900'
+                        }`}>
+                          {backfillJob.batches_fetched || 0}
+                        </p>
+                        <p className={`text-xs ${
+                          isBackfillRunning ? 'text-purple-700' :
+                          backfillJob.status === 'completed' ? 'text-green-700' : 'text-red-700'
+                        }`}>Batches</p>
+                      </div>
+                      <div>
+                        <p className={`text-xl font-bold ${
+                          isBackfillRunning ? 'text-purple-900' :
+                          backfillJob.status === 'completed' ? 'text-green-900' : 'text-red-900'
+                        }`}>
+                          {backfillJob.candles_fetched?.toLocaleString() || 0}
+                        </p>
+                        <p className={`text-xs ${
+                          isBackfillRunning ? 'text-purple-700' :
+                          backfillJob.status === 'completed' ? 'text-green-700' : 'text-red-700'
+                        }`}>Candles</p>
+                      </div>
+                      <div>
+                        <p className={`text-xl font-bold ${
+                          isBackfillRunning ? 'text-purple-900' :
+                          backfillJob.status === 'completed' ? 'text-green-900' : 'text-red-900'
+                        }`}>
+                          {backfillJob.started_at && backfillJob.completed_at
+                            ? `${Math.round((new Date(backfillJob.completed_at) - new Date(backfillJob.started_at)) / 1000)}s`
+                            : isBackfillRunning ? '...' : 'N/A'}
+                        </p>
+                        <p className={`text-xs ${
+                          isBackfillRunning ? 'text-purple-700' :
+                          backfillJob.status === 'completed' ? 'text-green-700' : 'text-red-700'
+                        }`}>Duration</p>
+                      </div>
+                    </div>
+
+                    {backfillJob.last_error && (
+                      <p className="mt-2 text-xs text-orange-700 bg-orange-50 p-2 rounded">
+                        Note: {backfillJob.last_error}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Completeness Progress */}

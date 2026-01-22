@@ -20,6 +20,7 @@ type QualityRepository struct {
 	checksCollection   *mongo.Collection
 	summaryCollection  *mongo.Collection
 	gapFillCollection  *mongo.Collection
+	backfillCollection *mongo.Collection
 }
 
 // NewQualityRepository creates a new quality repository
@@ -82,11 +83,33 @@ func NewQualityRepository(db *Database) *QualityRepository {
 		log.Printf("[QUALITY_REPO] Warning: Failed to create gap fill job index: %v", err)
 	}
 
+	// Backfill jobs collection
+	backfillCollection := db.GetCollection("backfill_jobs")
+
+	// Index for backfill jobs by status
+	backfillStatusIndex := mongo.IndexModel{
+		Keys: bson.D{{Key: "status", Value: 1}},
+	}
+	_, err = backfillCollection.Indexes().CreateOne(ctx, backfillStatusIndex)
+	if err != nil {
+		log.Printf("[QUALITY_REPO] Warning: Failed to create backfill status index: %v", err)
+	}
+
+	// Index for backfill jobs by job_id
+	backfillJobIndex := mongo.IndexModel{
+		Keys: bson.D{{Key: "job_id", Value: 1}},
+	}
+	_, err = backfillCollection.Indexes().CreateOne(ctx, backfillJobIndex)
+	if err != nil {
+		log.Printf("[QUALITY_REPO] Warning: Failed to create backfill job index: %v", err)
+	}
+
 	return &QualityRepository{
-		resultsCollection: resultsCollection,
-		checksCollection:  checksCollection,
-		summaryCollection: summaryCollection,
-		gapFillCollection: gapFillCollection,
+		resultsCollection:  resultsCollection,
+		checksCollection:   checksCollection,
+		summaryCollection:  summaryCollection,
+		gapFillCollection:  gapFillCollection,
+		backfillCollection: backfillCollection,
 	}
 }
 
@@ -517,6 +540,128 @@ func (r *QualityRepository) FindRecentGapFillJobsForJob(ctx context.Context, job
 	var jobs []*models.GapFillJob
 	if err := cursor.All(ctx, &jobs); err != nil {
 		return nil, fmt.Errorf("failed to decode gap fill jobs: %w", err)
+	}
+
+	return jobs, nil
+}
+
+// === Backfill Jobs ===
+
+// CreateBackfillJob creates a new backfill job
+func (r *QualityRepository) CreateBackfillJob(ctx context.Context, backfillJob *models.BackfillJob) error {
+	now := time.Now()
+	backfillJob.CreatedAt = now
+	backfillJob.UpdatedAt = now
+	backfillJob.Status = models.BackfillPending
+
+	result, err := r.backfillCollection.InsertOne(ctx, backfillJob)
+	if err != nil {
+		return fmt.Errorf("failed to create backfill job: %w", err)
+	}
+
+	backfillJob.ID = result.InsertedID.(primitive.ObjectID)
+	return nil
+}
+
+// UpdateBackfillJob updates a backfill job
+func (r *QualityRepository) UpdateBackfillJob(ctx context.Context, backfillJob *models.BackfillJob) error {
+	backfillJob.UpdatedAt = time.Now()
+
+	_, err := r.backfillCollection.UpdateOne(
+		ctx,
+		bson.M{"_id": backfillJob.ID},
+		bson.M{"$set": backfillJob},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update backfill job: %w", err)
+	}
+
+	return nil
+}
+
+// FindBackfillJob finds a backfill job by ID
+func (r *QualityRepository) FindBackfillJob(ctx context.Context, id string) (*models.BackfillJob, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid backfill job ID: %w", err)
+	}
+
+	var backfillJob models.BackfillJob
+	err = r.backfillCollection.FindOne(ctx, bson.M{"_id": objID}).Decode(&backfillJob)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to find backfill job: %w", err)
+	}
+
+	return &backfillJob, nil
+}
+
+// FindActiveBackfillJobs finds backfill jobs that are pending or running
+func (r *QualityRepository) FindActiveBackfillJobs(ctx context.Context) ([]*models.BackfillJob, error) {
+	filter := bson.M{
+		"status": bson.M{
+			"$in": []models.BackfillStatus{
+				models.BackfillPending,
+				models.BackfillRunning,
+			},
+		},
+	}
+
+	cursor, err := r.backfillCollection.Find(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find active backfill jobs: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var jobs []*models.BackfillJob
+	if err := cursor.All(ctx, &jobs); err != nil {
+		return nil, fmt.Errorf("failed to decode backfill jobs: %w", err)
+	}
+
+	return jobs, nil
+}
+
+// FindActiveBackfillJobForJob finds an active backfill job for a specific data job
+func (r *QualityRepository) FindActiveBackfillJobForJob(ctx context.Context, jobID primitive.ObjectID) (*models.BackfillJob, error) {
+	filter := bson.M{
+		"job_id": jobID,
+		"status": bson.M{
+			"$in": []models.BackfillStatus{
+				models.BackfillPending,
+				models.BackfillRunning,
+			},
+		},
+	}
+
+	var backfillJob models.BackfillJob
+	err := r.backfillCollection.FindOne(ctx, filter).Decode(&backfillJob)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to find active backfill job: %w", err)
+	}
+
+	return &backfillJob, nil
+}
+
+// FindRecentBackfillJobsForJob finds recent backfill jobs for a specific data job
+func (r *QualityRepository) FindRecentBackfillJobsForJob(ctx context.Context, jobID primitive.ObjectID, limit int) ([]*models.BackfillJob, error) {
+	opts := options.Find().
+		SetSort(bson.D{{Key: "created_at", Value: -1}}).
+		SetLimit(int64(limit))
+
+	cursor, err := r.backfillCollection.Find(ctx, bson.M{"job_id": jobID}, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find recent backfill jobs: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var jobs []*models.BackfillJob
+	if err := cursor.All(ctx, &jobs); err != nil {
+		return nil, fmt.Errorf("failed to decode backfill jobs: %w", err)
 	}
 
 	return jobs, nil
