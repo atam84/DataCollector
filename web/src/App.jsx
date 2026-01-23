@@ -6,6 +6,7 @@ import Dashboard from './components/Dashboard'
 import JobQueue from './components/JobQueue'
 import IndicatorsInfo from './components/IndicatorsInfo'
 import DataQuality from './components/DataQuality'
+import MLExport from './components/MLExport'
 
 const API_BASE = '/api/v1'
 
@@ -133,6 +134,16 @@ function App() {
             >
               Data Quality
             </button>
+            <button
+              onClick={() => setActiveTab('mlexport')}
+              className={`${
+                activeTab === 'mlexport'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+            >
+              ML Export
+            </button>
           </nav>
         </div>
 
@@ -185,6 +196,9 @@ function App() {
           )}
           {activeTab === 'quality' && (
             <DataQuality jobs={jobs} connectors={connectors} />
+          )}
+          {activeTab === 'mlexport' && (
+            <MLExport jobs={jobs} />
           )}
         </div>
       </div>

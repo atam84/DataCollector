@@ -2,6 +2,51 @@
 
 All notable changes to the DataCollector project will be documented in this file.
 
+## [v1.1.0] - 2026-01-23
+
+### Added
+- **ML Export System**: Comprehensive machine learning data export with feature engineering
+  - Multiple export formats: CSV, Parquet, NumPy (.npz), JSON-L
+  - Feature engineering: Price features, lagged features, rolling statistics, temporal features
+  - Target variable generation: Future returns, direction, multi-class classification, volatility
+  - Preprocessing: Normalization (min-max, z-score, robust), NaN handling, outlier clipping
+  - Train/validation/test splitting with time-based option (no look-ahead bias)
+  - Sequence generation for LSTM/Transformer models
+  - Multi-job dataset creation for combining multiple symbols/timeframes
+  - Background export processing with progress tracking
+  - Built-in presets: Basic, Technical, Full Features, LSTM Ready, Classification, Scalping, Swing Trading
+
+- **ML Export API Endpoints**:
+  - `POST /api/v1/ml/export/start` - Start background export job
+  - `GET /api/v1/ml/export/jobs` - List export jobs
+  - `GET /api/v1/ml/export/jobs/:id` - Get export job status
+  - `GET /api/v1/ml/export/jobs/:id/download` - Download exported file
+  - `GET /api/v1/ml/export/jobs/:id/metadata` - Get export metadata
+  - `POST /api/v1/ml/export/jobs/:id/cancel` - Cancel export job
+  - `DELETE /api/v1/ml/export/jobs/:id` - Delete export job
+  - `GET /api/v1/ml/profiles` - List saved profiles
+  - `GET /api/v1/ml/profiles/presets` - Get built-in presets
+  - `POST /api/v1/ml/profiles` - Create custom profile
+  - `GET /api/v1/ml/formats` - Get supported formats
+  - `GET /api/v1/ml/features` - Get available features
+  - `POST /api/v1/ml/datasets` - Create combined dataset
+
+- **ML Export Frontend**:
+  - New "ML Export" tab in navigation
+  - Job selection with multi-select
+  - Quick preset buttons for common configurations
+  - Format selection (CSV, Parquet, NumPy, JSON-L)
+  - Feature configuration with category toggles and specific indicators
+  - Price features, temporal features, lagged features, rolling statistics
+  - Target variable configuration with type and lookahead periods
+  - Advanced settings: Preprocessing, train/val/test split, sequence generation
+  - Recent exports table with status, progress, download actions
+
+### Changed
+- Updated navigation to include ML Export tab
+- Added MLExportRepository, MLFeatureEngine, MLExportService, MLExportWriter
+- Added MLExportHandler with comprehensive API endpoints
+
 ## [v1.0.6] - 2026-01-23
 
 ### Added

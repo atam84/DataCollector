@@ -24,7 +24,7 @@ import (
 )
 
 // @title DataCollector API
-// @version 1.0.5
+// @version 1.1.0
 // @description Cryptocurrency market data collection service with OHLCV data, technical indicators, and job management.
 // @termsOfService http://swagger.io/terms/
 
@@ -115,6 +115,7 @@ func main() {
 	retentionRepo := repository.NewRetentionRepository(db)
 	indicatorConfigRepo := repository.NewIndicatorConfigRepository(db)
 	qualityRepo := repository.NewQualityRepository(db)
+	mlExportRepo := repository.NewMLExportRepository(db)
 
 	// Initialize services
 	rateLimiter := service.NewRateLimiter(connectorRepo)
@@ -125,6 +126,7 @@ func main() {
 	alertService := service.NewAlertService(alertRepo, jobRepo, connectorRepo)
 	retentionService := service.NewRetentionService(retentionRepo)
 	qualityService := service.NewQualityService(qualityRepo, ohlcvRepo, jobRepo, ccxtService, connectorRepo, rateLimiter)
+	mlExportService := service.NewMLExportService(ohlcvRepo, jobRepo, mlExportRepo)
 
 	// Start automatic job scheduler
 	jobScheduler.Start()
@@ -144,6 +146,7 @@ func main() {
 	alertHandler := handlers.NewAlertHandler(alertRepo, alertService)
 	retentionHandler := handlers.NewRetentionHandler(retentionRepo, retentionService)
 	qualityHandler := handlers.NewQualityHandler(qualityService, jobRepo)
+	mlExportHandler := handlers.NewMLExportHandler(mlExportService)
 
 	// Health routes
 	api.Get("/health", healthHandler.GetHealth)
@@ -270,6 +273,34 @@ func main() {
 	api.Post("/retention/cleanup/default", retentionHandler.RunDefaultCleanup)
 	api.Post("/retention/cleanup/empty", retentionHandler.DeleteEmptyChunks)
 	api.Post("/retention/cleanup/exchange/:exchangeId", retentionHandler.CleanupExchange)
+
+	// ML Export routes
+	ml := api.Group("/ml")
+
+	// ML Export job routes
+	ml.Post("/export/start", mlExportHandler.StartExport)
+	ml.Get("/export/jobs", mlExportHandler.ListExportJobs)
+	ml.Get("/export/jobs/:id", mlExportHandler.GetExportJob)
+	ml.Get("/export/jobs/:id/download", mlExportHandler.DownloadExport)
+	ml.Get("/export/jobs/:id/metadata", mlExportHandler.GetExportMetadata)
+	ml.Post("/export/jobs/:id/cancel", mlExportHandler.CancelExport)
+	ml.Delete("/export/jobs/:id", mlExportHandler.DeleteExport)
+
+	// ML Export profile routes (presets MUST come before :id routes)
+	ml.Get("/profiles", mlExportHandler.ListProfiles)
+	ml.Get("/profiles/presets", mlExportHandler.GetPresets)
+	ml.Post("/profiles", mlExportHandler.CreateProfile)
+	ml.Get("/profiles/:id", mlExportHandler.GetProfile)
+	ml.Put("/profiles/:id", mlExportHandler.UpdateProfile)
+	ml.Delete("/profiles/:id", mlExportHandler.DeleteProfile)
+
+	// ML Export utility routes
+	ml.Get("/formats", mlExportHandler.GetSupportedFormats)
+	ml.Get("/features", mlExportHandler.GetAvailableFeatures)
+	ml.Get("/config/default", mlExportHandler.GetDefaultConfig)
+
+	// ML Dataset routes
+	ml.Post("/datasets", mlExportHandler.CreateDataset)
 
 	// Start server
 	address := fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port)

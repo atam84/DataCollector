@@ -1,7 +1,7 @@
 # Pending Tasks
 
 **Last Updated:** 2026-01-23
-**Current Version:** v1.0.6
+**Current Version:** v1.1.0
 **Current Branch:** main
 
 ---
@@ -109,14 +109,14 @@
 
 ## 🔵 Future Enhancements
 
-| # | Issue | Description |
-|---|-------|-------------|
-| F1 | Machine learning model training integration | |
-| F2 | Strategy backtesting framework | |
-| F3 | Alert system for indicator threshold breaches | |
-| F4 | Correlation analysis between pairs | |
-| F5 | Market regime detection | |
-| F6 | Custom indicator formula builder | |
+| # | Issue | Description | Status |
+|---|-------|-------------|--------|
+| F1 | Machine learning model training integration | ML export with feature engineering | ✅ Done |
+| F2 | Strategy backtesting framework | | |
+| F3 | Alert system for indicator threshold breaches | | |
+| F4 | Correlation analysis between pairs | | |
+| F5 | Market regime detection | | |
+| F6 | Custom indicator formula builder | | |
 
 ---
 
