@@ -27,7 +27,7 @@ const INDICATOR_CATEGORIES = {
   volume: ['obv', 'vwap', 'mfi', 'cmf', 'volume_sma']
 }
 
-export default function MLExport({ jobs = [] }) {
+export default function MLExport({ jobs = [], qualities = [] }) {
   const [selectedJobs, setSelectedJobs] = useState([])
   const [exportJobs, setExportJobs] = useState([])
   const [presets, setPresets] = useState([])
@@ -37,6 +37,11 @@ export default function MLExport({ jobs = [] }) {
   const [exportLoading, setExportLoading] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [pollInterval, setPollInterval] = useState(null)
+
+  // Filter states
+  const [searchQuery, setSearchQuery] = useState('')
+  const [exchangeFilter, setExchangeFilter] = useState('')
+  const [timeframeFilter, setTimeframeFilter] = useState('')
 
   // Export configuration state
   const [config, setConfig] = useState({
@@ -239,6 +244,69 @@ export default function MLExport({ jobs = [] }) {
     setActivePreset(null)
   }
 
+  // Get candle count from quality data
+  const getCandleCount = (job) => {
+    const quality = qualities?.find(q =>
+      q.exchange_id === job.connector_exchange_id &&
+      q.symbol === job.symbol &&
+      q.timeframe === job.timeframe
+    )
+    return quality?.total_candles || 0
+  }
+
+  // Format candle count
+  const formatCandleCount = (count) => {
+    if (count === null || count === undefined || count === 0) return '-'
+    if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M'
+    if (count >= 1000) return (count / 1000).toFixed(1) + 'K'
+    return count.toString()
+  }
+
+  // Get unique exchanges and timeframes for filters
+  const exchanges = [...new Set(jobs.map(j => j.connector_exchange_id))].filter(Boolean).sort()
+  const timeframes = [...new Set(jobs.map(j => j.timeframe))].filter(Boolean).sort((a, b) => {
+    const order = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w', '1M']
+    return order.indexOf(a) - order.indexOf(b)
+  })
+
+  // Filter jobs
+  const filteredJobs = jobs.filter(job => {
+    // Search filter - match symbol or exchange
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase()
+      const matchesSymbol = job.symbol?.toLowerCase().includes(query)
+      const matchesExchange = job.connector_exchange_id?.toLowerCase().includes(query)
+      if (!matchesSymbol && !matchesExchange) return false
+    }
+
+    // Exchange filter
+    if (exchangeFilter && job.connector_exchange_id !== exchangeFilter) return false
+
+    // Timeframe filter
+    if (timeframeFilter && job.timeframe !== timeframeFilter) return false
+
+    return true
+  })
+
+  // Select all filtered jobs
+  const selectAllFiltered = () => {
+    const filteredIds = filteredJobs.map(j => j.id)
+    setSelectedJobs(prev => {
+      const newSelection = [...prev]
+      filteredIds.forEach(id => {
+        if (!newSelection.includes(id)) {
+          newSelection.push(id)
+        }
+      })
+      return newSelection
+    })
+  }
+
+  // Deselect all
+  const deselectAll = () => {
+    setSelectedJobs([])
+  }
+
   const getStatusColor = (status) => {
     switch (status) {
       case 'completed': return 'bg-green-100 text-green-800'
@@ -347,38 +415,155 @@ export default function MLExport({ jobs = [] }) {
         {/* Job Selection */}
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold mb-4">Select Jobs</h3>
-          <div className="space-y-2 max-h-96 overflow-y-auto">
-            {jobs.length === 0 ? (
-              <p className="text-gray-500 text-sm">No jobs available</p>
-            ) : (
-              jobs.map(job => (
-                <label
-                  key={job.id}
-                  className={`flex items-center p-3 rounded border cursor-pointer transition ${
-                    selectedJobs.includes(job.id)
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
+
+          {/* Search and Filters */}
+          <div className="space-y-3 mb-4">
+            {/* Search Bar */}
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by symbol or exchange..."
+                className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <svg
+                className="absolute left-3 top-2.5 h-4 w-4 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+
+            {/* Filters Row */}
+            <div className="flex gap-2">
+              <select
+                value={exchangeFilter}
+                onChange={(e) => setExchangeFilter(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">All Exchanges</option>
+                {exchanges.map(ex => (
+                  <option key={ex} value={ex}>{ex}</option>
+                ))}
+              </select>
+
+              <select
+                value={timeframeFilter}
+                onChange={(e) => setTimeframeFilter(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">All Timeframes</option>
+                {timeframes.map(tf => (
+                  <option key={tf} value={tf}>{tf}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Selection Actions */}
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-gray-500">
+                {filteredJobs.length} job{filteredJobs.length !== 1 ? 's' : ''} shown
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={selectAllFiltered}
+                  className="text-blue-600 hover:text-blue-800 font-medium"
                 >
-                  <input
-                    type="checkbox"
-                    checked={selectedJobs.includes(job.id)}
-                    onChange={() => toggleJobSelection(job.id)}
-                    className="h-4 w-4 text-blue-600 rounded"
-                  />
-                  <div className="ml-3">
-                    <div className="font-medium text-sm">{job.symbol}</div>
-                    <div className="text-xs text-gray-500">
-                      {job.connector_exchange_id} | {job.timeframe} | {job.candle_count?.toLocaleString() || 0} candles
+                  Select All
+                </button>
+                <span className="text-gray-300">|</span>
+                <button
+                  onClick={deselectAll}
+                  className="text-gray-600 hover:text-gray-800 font-medium"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Job List */}
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {filteredJobs.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-500 text-sm">
+                  {jobs.length === 0 ? 'No jobs available' : 'No jobs match the current filters'}
+                </p>
+                {(searchQuery || exchangeFilter || timeframeFilter) && (
+                  <button
+                    onClick={() => {
+                      setSearchQuery('')
+                      setExchangeFilter('')
+                      setTimeframeFilter('')
+                    }}
+                    className="mt-2 text-blue-600 hover:text-blue-800 text-sm"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            ) : (
+              filteredJobs.map(job => {
+                const candleCount = getCandleCount(job)
+                return (
+                  <label
+                    key={job.id}
+                    className={`flex items-center p-3 rounded border cursor-pointer transition ${
+                      selectedJobs.includes(job.id)
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedJobs.includes(job.id)}
+                      onChange={() => toggleJobSelection(job.id)}
+                      className="h-4 w-4 text-blue-600 rounded"
+                    />
+                    <div className="ml-3 flex-1 min-w-0">
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium text-sm truncate">{job.symbol}</span>
+                        <span className={`text-xs font-mono ml-2 ${
+                          candleCount === 0 ? 'text-gray-400' :
+                          candleCount < 100 ? 'text-orange-600' :
+                          'text-green-600'
+                        }`}>
+                          {formatCandleCount(candleCount)}
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-500 flex items-center gap-1">
+                        <span className="px-1.5 py-0.5 bg-gray-100 rounded">{job.connector_exchange_id}</span>
+                        <span className="px-1.5 py-0.5 bg-gray-100 rounded">{job.timeframe}</span>
+                        <span className={`ml-1 px-1.5 py-0.5 rounded text-xs ${
+                          job.status === 'active' ? 'bg-green-100 text-green-700' :
+                          job.status === 'paused' ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-red-100 text-red-700'
+                        }`}>{job.status}</span>
+                      </div>
                     </div>
-                  </div>
-                </label>
-              ))
+                  </label>
+                )
+              })
             )}
           </div>
+
+          {/* Selection Summary */}
           {selectedJobs.length > 0 && (
-            <div className="mt-4 p-3 bg-blue-50 rounded text-sm text-blue-700">
-              {selectedJobs.length} job(s) selected
+            <div className="mt-4 p-3 bg-blue-50 rounded border border-blue-200">
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-blue-700">
+                  {selectedJobs.length} job{selectedJobs.length !== 1 ? 's' : ''} selected
+                </span>
+                <span className="text-xs text-blue-600">
+                  {selectedJobs.reduce((sum, id) => {
+                    const job = jobs.find(j => j.id === id)
+                    return sum + (job ? getCandleCount(job) : 0)
+                  }, 0).toLocaleString()} total candles
+                </span>
+              </div>
             </div>
           )}
         </div>

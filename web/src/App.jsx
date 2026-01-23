@@ -198,7 +198,7 @@ function App() {
             <DataQuality jobs={jobs} connectors={connectors} />
           )}
           {activeTab === 'mlexport' && (
-            <MLExport jobs={jobs} />
+            <MLExport jobs={jobs} qualities={qualities} />
           )}
         </div>
       </div>
