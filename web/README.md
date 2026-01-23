@@ -15,18 +15,43 @@ Modern React admin interface for managing cryptocurrency data collection.
 - Overview of connectors and jobs
 - Real-time statistics
 - System health status
+- Connector health monitoring (uptime, error rate, response time)
+- Data quality summary with distribution chart
 
 ### Connector Management
 - Create, view, and delete connectors
-- **Sandbox mode toggle switch** - Switch between testnet and production
-- Rate limit monitoring
-- Support for multiple exchanges (Binance, Bybit, Coinbase, Kraken, KuCoin)
+- Rate limit monitoring with cooldown visualization
+- Health status synced with Dashboard API
+- Support for 111 exchanges via CCXT
 
 ### Job Management
 - Create, pause, resume, and delete jobs
 - Monitor job execution status
 - View last run times and errors
+- **Filters**: Timeframe, Status, Exchange
+- **Candles column**: Shows total candle count
 - Support for multiple timeframes (1m, 5m, 15m, 30m, 1h, 4h, 1d)
+
+### Data Quality
+- Gap detection and completeness scoring
+- Quality status: Excellent/Good/Fair/Poor
+- Background quality checks with progress tracking
+- Gap filling (fill missing candles)
+- Historical backfill (fetch past data)
+
+### Job Queue
+- View pending/running jobs in queue
+- Clickable symbols → job details modal
+- Rate limit status per connector
+
+### Charts (CandlestickChart)
+- Professional candlestick visualization
+- Volume histogram with color coding
+- **Period selection**: 1D, 1W, 1M, 3M, 6M, 1Y, All
+- **Zoom controls**: Zoom in/out/reset buttons
+- Mouse wheel zoom and drag to pan
+- Indicator overlays (SMA, EMA, Bollinger Bands, etc.)
+- Separate panes for momentum indicators (RSI, MACD, Stochastic)
 
 ## Getting Started
 
@@ -67,28 +92,42 @@ npm run preview
 web/
 ├── src/
 │   ├── components/
-│   │   ├── Dashboard.jsx       # Dashboard overview
-│   │   ├── ConnectorList.jsx   # Connector management + sandbox toggle
-│   │   └── JobList.jsx         # Job management
-│   ├── App.jsx                 # Main app component
-│   ├── main.jsx                # Entry point
-│   └── index.css               # Tailwind styles
-├── index.html                  # HTML template
-├── vite.config.js              # Vite configuration
-├── tailwind.config.js          # Tailwind configuration
-└── package.json                # Dependencies
+│   │   ├── Dashboard.jsx         # Dashboard overview with health & quality
+│   │   ├── ConnectorList.jsx     # Connector management with health sync
+│   │   ├── ConnectorWizard.jsx   # Multi-step connector creation
+│   │   ├── JobList.jsx           # Job management with filters
+│   │   ├── JobDetails.jsx        # Job details modal (Overview, Data, Charts)
+│   │   ├── JobWizard.jsx         # Multi-step job creation
+│   │   ├── JobQueue.jsx          # Queue view with rate limits
+│   │   ├── DataQuality.jsx       # Quality analysis & gap filling
+│   │   ├── CandlestickChart.jsx  # Professional charts with zoom
+│   │   └── IndicatorsInfo.jsx    # Indicators documentation
+│   ├── App.jsx                   # Main app with tab navigation
+│   ├── main.jsx                  # Entry point
+│   └── index.css                 # Tailwind styles
+├── index.html                    # HTML template
+├── vite.config.js                # Vite configuration
+├── tailwind.config.js            # Tailwind configuration
+└── package.json                  # Dependencies
 ```
 
 ## Key Features
 
-### Sandbox Mode Toggle
+### Data Quality Monitoring
 
-The connector management page includes a **visual toggle switch** for sandbox mode:
+The Data Quality tab provides comprehensive monitoring:
 
-- **Yellow toggle** = Sandbox mode ON (using testnet)
-- **Green toggle** = Sandbox mode OFF (using production)
+- **Quality Status**: Excellent (>99%), Good (>95%), Fair (>90%), Poor (<90%)
+- **Gap Detection**: Identifies missing candles in data
+- **Completeness Score**: Percentage of expected candles present
+- **Freshness Tracking**: How recent is the latest data
+- **Background Checks**: Non-blocking quality analysis
 
-Simply click the toggle to switch between modes. The change is saved immediately to the database.
+### Gap Filling & Backfill
+
+- **Gap Fill**: Fill missing candles (first 5 or all gaps)
+- **Backfill**: Fetch historical data (months/years back)
+- Both run in background with progress tracking
 
 ### API Integration
 
@@ -144,24 +183,47 @@ To customize the design, edit `tailwind.config.js`.
 ## Components
 
 ### Dashboard.jsx
-- Displays summary statistics
-- Shows active/sandbox connectors
-- Shows active/paused jobs
-- Quick overview of recent connectors
+- Summary statistics (connectors, jobs, candles)
+- Connector health monitoring (uptime, errors, response time)
+- Data quality distribution chart
+- Rate limit overview for all connectors
 
 ### ConnectorList.jsx
 - Grid view of all connectors
-- **Sandbox mode toggle switch** (key feature)
-- Create new connector modal
-- Delete connector action
-- Rate limit display
+- Health status synced with Dashboard API
+- Health stats: Uptime, Error Rate, Response Time
+- Rate limit visualization with cooldown timer
+- Create/Edit/Delete connector actions
 
 ### JobList.jsx
-- Table view of all jobs
-- Create new job modal
-- Pause/resume job actions
-- Delete job action
-- Last run time and error display
+- Table view of all jobs with sorting
+- **Timeframe filter**: Filter by 1m, 5m, 15m, etc.
+- **Status filter**: Active, Paused, Stopped
+- **Candles column**: Shows total candle count
+- Job details modal with charts
+- Pause/Resume/Delete actions
+
+### DataQuality.jsx
+- Quality summary with status distribution
+- Gap detection and completeness scores
+- Background quality checks with progress
+- Gap filling (fill first 5 or all gaps)
+- Historical backfill feature
+- Clickable symbols → job details
+
+### CandlestickChart.jsx
+- Professional candlestick visualization (lightweight-charts v5)
+- Volume histogram with color coding
+- Period selection: 1D, 1W, 1M, 3M, 6M, 1Y, All
+- Zoom controls: In/Out/Reset buttons
+- Mouse wheel zoom, drag to pan
+- Indicator overlays and separate panes
+
+### JobQueue.jsx
+- Queue status per connector
+- Pending/Running job counts
+- Clickable symbols → job details
+- Rate limit indicators
 
 ## Browser Support
 

@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { createChart, ColorType, CrosshairMode, CandlestickSeries, HistogramSeries, LineSeries } from 'lightweight-charts'
-import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline'
+import { ChevronDownIcon, ChevronUpIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
 
 // Indicator definitions with metadata
 const INDICATOR_GROUPS = {
@@ -45,6 +45,17 @@ const INDICATOR_GROUPS = {
   }
 }
 
+// Time period definitions in milliseconds
+const TIME_PERIODS = [
+  { label: '1D', ms: 24 * 60 * 60 * 1000 },
+  { label: '1W', ms: 7 * 24 * 60 * 60 * 1000 },
+  { label: '1M', ms: 30 * 24 * 60 * 60 * 1000 },
+  { label: '3M', ms: 90 * 24 * 60 * 60 * 1000 },
+  { label: '6M', ms: 180 * 24 * 60 * 60 * 1000 },
+  { label: '1Y', ms: 365 * 24 * 60 * 60 * 1000 },
+  { label: 'All', ms: null },
+]
+
 function CandlestickChart({ data, symbol, timeframe, height = 500 }) {
   const chartContainerRef = useRef(null)
   const chartRef = useRef(null)
@@ -52,6 +63,7 @@ function CandlestickChart({ data, symbol, timeframe, height = 500 }) {
   const [selectedIndicators, setSelectedIndicators] = useState(['sma20', 'sma50'])
   const [showVolume, setShowVolume] = useState(true)
   const [expandedGroups, setExpandedGroups] = useState({ trend: true, momentum: false, volatility: false, volume: false })
+  const [selectedPeriod, setSelectedPeriod] = useState('All')
 
   // Transform data for lightweight-charts
   const chartData = useMemo(() => {
@@ -248,6 +260,75 @@ function CandlestickChart({ data, symbol, timeframe, height = 500 }) {
     setExpandedGroups(prev => ({ ...prev, [group]: !prev[group] }))
   }
 
+  // Zoom functions
+  const zoomIn = useCallback(() => {
+    if (!chartRef.current) return
+    const timeScale = chartRef.current.timeScale()
+    const currentRange = timeScale.getVisibleLogicalRange()
+    if (!currentRange) return
+
+    const rangeSize = currentRange.to - currentRange.from
+    const center = (currentRange.from + currentRange.to) / 2
+    const newSize = rangeSize * 0.7 // Zoom in by 30%
+
+    timeScale.setVisibleLogicalRange({
+      from: center - newSize / 2,
+      to: center + newSize / 2
+    })
+  }, [])
+
+  const zoomOut = useCallback(() => {
+    if (!chartRef.current) return
+    const timeScale = chartRef.current.timeScale()
+    const currentRange = timeScale.getVisibleLogicalRange()
+    if (!currentRange) return
+
+    const rangeSize = currentRange.to - currentRange.from
+    const center = (currentRange.from + currentRange.to) / 2
+    const newSize = rangeSize * 1.4 // Zoom out by 40%
+
+    timeScale.setVisibleLogicalRange({
+      from: center - newSize / 2,
+      to: center + newSize / 2
+    })
+  }, [])
+
+  const resetZoom = useCallback(() => {
+    if (!chartRef.current) return
+    chartRef.current.timeScale().fitContent()
+    setSelectedPeriod('All')
+  }, [])
+
+  // Set visible range based on selected time period
+  const setTimePeriod = useCallback((periodLabel) => {
+    if (!chartRef.current || !chartData.candles.length) return
+
+    setSelectedPeriod(periodLabel)
+    const period = TIME_PERIODS.find(p => p.label === periodLabel)
+
+    if (!period || period.ms === null) {
+      // Show all data
+      chartRef.current.timeScale().fitContent()
+      return
+    }
+
+    // Get the latest timestamp
+    const latestCandle = chartData.candles[chartData.candles.length - 1]
+    const latestTime = latestCandle.time
+    const earliestTime = latestTime - (period.ms / 1000) // Convert ms to seconds
+
+    // Find the index of the first candle in range
+    const fromIndex = chartData.candles.findIndex(c => c.time >= earliestTime)
+    const toIndex = chartData.candles.length - 1
+
+    if (fromIndex >= 0) {
+      chartRef.current.timeScale().setVisibleLogicalRange({
+        from: fromIndex,
+        to: toIndex
+      })
+    }
+  }, [chartData.candles])
+
   if (!data || data.length === 0) {
     return (
       <div className="flex items-center justify-center h-64 text-gray-500">
@@ -259,12 +340,56 @@ function CandlestickChart({ data, symbol, timeframe, height = 500 }) {
   return (
     <div className="space-y-4">
       {/* Chart Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h3 className="text-lg font-bold text-gray-900">{symbol}</h3>
           <p className="text-sm text-gray-500">{timeframe} timeframe</p>
         </div>
-        <div className="flex items-center space-x-4">
+
+        {/* Period Selection Buttons */}
+        <div className="flex items-center space-x-1 bg-gray-100 rounded-lg p-1">
+          {TIME_PERIODS.map(period => (
+            <button
+              key={period.label}
+              onClick={() => setTimePeriod(period.label)}
+              className={`px-3 py-1 text-xs font-medium rounded transition ${
+                selectedPeriod === period.label
+                  ? 'bg-blue-500 text-white'
+                  : 'text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {period.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Zoom Controls and Volume Toggle */}
+        <div className="flex items-center space-x-3">
+          {/* Zoom Buttons */}
+          <div className="flex items-center space-x-1 bg-gray-100 rounded-lg p-1">
+            <button
+              onClick={zoomIn}
+              className="p-1.5 text-gray-600 hover:bg-gray-200 rounded transition"
+              title="Zoom In"
+            >
+              <MagnifyingGlassPlusIcon className="w-4 h-4" />
+            </button>
+            <button
+              onClick={zoomOut}
+              className="p-1.5 text-gray-600 hover:bg-gray-200 rounded transition"
+              title="Zoom Out"
+            >
+              <MagnifyingGlassMinusIcon className="w-4 h-4" />
+            </button>
+            <button
+              onClick={resetZoom}
+              className="p-1.5 text-gray-600 hover:bg-gray-200 rounded transition"
+              title="Reset Zoom"
+            >
+              <ArrowsPointingOutIcon className="w-4 h-4" />
+            </button>
+          </div>
+
           <label className="flex items-center space-x-2 text-sm">
             <input
               type="checkbox"
@@ -272,7 +397,7 @@ function CandlestickChart({ data, symbol, timeframe, height = 500 }) {
               onChange={(e) => setShowVolume(e.target.checked)}
               className="h-4 w-4 text-blue-600 rounded"
             />
-            <span>Show Volume</span>
+            <span>Volume</span>
           </label>
         </div>
       </div>
@@ -281,6 +406,9 @@ function CandlestickChart({ data, symbol, timeframe, height = 500 }) {
         {/* Chart Container */}
         <div className="flex-1">
           <div ref={chartContainerRef} className="border border-gray-200 rounded-lg" />
+          <p className="text-xs text-gray-400 mt-1 text-center">
+            Use mouse wheel to zoom, drag to pan. Double-click to reset.
+          </p>
         </div>
 
         {/* Indicator Panel */}

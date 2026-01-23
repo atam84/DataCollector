@@ -29,6 +29,7 @@ function ConnectorList({ connectors, onRefresh, loading }) {
   const [submitting, setSubmitting] = useState(false)
   const [rateLimitStatus, setRateLimitStatus] = useState({})
   const [loadingRateLimit, setLoadingRateLimit] = useState(new Set())
+  const [healthData, setHealthData] = useState(null)
 
   // Fetch rate limit status for all connectors
   const fetchRateLimitStatus = useCallback(async (connectorId) => {
@@ -64,6 +65,31 @@ function ConnectorList({ connectors, onRefresh, loading }) {
 
     return () => clearInterval(interval)
   }, [connectors, fetchRateLimitStatus])
+
+  // Fetch health data from API (same as Dashboard)
+  const fetchHealthData = useCallback(async () => {
+    try {
+      const response = await axios.get(`${API_BASE}/connectors/health`)
+      setHealthData(response.data)
+    } catch (err) {
+      console.error('Failed to fetch health data:', err)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (connectors.length === 0) return
+
+    fetchHealthData()
+    const interval = setInterval(fetchHealthData, 15000)
+
+    return () => clearInterval(interval)
+  }, [connectors, fetchHealthData])
+
+  // Helper to get health status for a connector from API data
+  const getConnectorHealth = useCallback((exchangeId) => {
+    if (!healthData?.connectors) return null
+    return healthData.connectors.find(c => c.exchange_id === exchangeId)
+  }, [healthData])
 
   // Reset rate limit usage
   const resetRateLimitUsage = async (connectorId) => {
@@ -211,9 +237,15 @@ function ConnectorList({ connectors, onRefresh, loading }) {
           {connectors.map(connector => {
             const rlStatus = rateLimitStatus[connector.id]
             const usagePercent = calculateRateLimitUsage(connector.rate_limit)
-            const isHealthy = connector.status === 'active' && rlStatus?.can_call_now && usagePercent < 80
-            const isWarning = connector.status === 'active' && (usagePercent >= 50 || !rlStatus?.can_call_now)
-            const isError = connector.status !== 'active' || usagePercent >= 80
+
+            // Get health from API (same as Dashboard)
+            const apiHealth = getConnectorHealth(connector.exchange_id)
+            const healthStatus = apiHealth?.health_status || 'healthy'
+
+            // Determine health state from API or fallback to connector status
+            const isHealthy = connector.status === 'active' && healthStatus === 'healthy'
+            const isDegraded = connector.status === 'active' && healthStatus === 'degraded'
+            const isUnhealthy = connector.status !== 'active' || healthStatus === 'unhealthy'
 
             return (
               <div key={connector.id} className={`bg-white rounded-lg shadow-md hover:shadow-lg transition overflow-hidden ${
@@ -221,7 +253,7 @@ function ConnectorList({ connectors, onRefresh, loading }) {
               }`}>
                 {/* Health Indicator Bar */}
                 <div className={`h-1.5 ${
-                  isError ? 'bg-red-500' : isWarning ? 'bg-yellow-500' : 'bg-green-500'
+                  isUnhealthy ? 'bg-red-500' : isDegraded ? 'bg-yellow-500' : 'bg-green-500'
                 }`} />
 
                 <div className="p-5">
@@ -234,23 +266,47 @@ function ConnectorList({ connectors, onRefresh, loading }) {
                     <div className="flex items-center space-x-2 ml-2">
                       {/* Health Indicator */}
                       <div className={`flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        isError ? 'bg-red-100 text-red-700' :
-                        isWarning ? 'bg-yellow-100 text-yellow-700' :
+                        isUnhealthy ? 'bg-red-100 text-red-700' :
+                        isDegraded ? 'bg-yellow-100 text-yellow-700' :
                         'bg-green-100 text-green-700'
                       }`}>
-                        {isError ? (
+                        {isUnhealthy ? (
                           <XCircleIcon className="w-3.5 h-3.5 mr-1" />
-                        ) : isWarning ? (
+                        ) : isDegraded ? (
                           <ExclamationTriangleIcon className="w-3.5 h-3.5 mr-1" />
                         ) : (
                           <CheckCircleIcon className="w-3.5 h-3.5 mr-1" />
                         )}
-                        {connector.status === 'active' ? (
-                          isError ? 'Overloaded' : isWarning ? 'Busy' : 'Healthy'
-                        ) : 'Suspended'}
+                        {connector.status !== 'active' ? 'Suspended' :
+                          healthStatus === 'unhealthy' ? 'Unhealthy' :
+                          healthStatus === 'degraded' ? 'Degraded' : 'Healthy'}
                       </div>
                     </div>
                   </div>
+
+                  {/* Health Stats from API */}
+                  {apiHealth && connector.status === 'active' && (
+                    <div className="mb-4 grid grid-cols-3 gap-2 text-xs">
+                      <div className="bg-gray-50 rounded p-2 text-center">
+                        <p className="text-gray-500">Uptime</p>
+                        <p className={`font-semibold ${apiHealth.uptime_percentage < 95 ? 'text-yellow-600' : 'text-green-600'}`}>
+                          {apiHealth.uptime_percentage?.toFixed(1) || 100}%
+                        </p>
+                      </div>
+                      <div className="bg-gray-50 rounded p-2 text-center">
+                        <p className="text-gray-500">Errors</p>
+                        <p className={`font-semibold ${(apiHealth.error_rate_percentage || 0) > 5 ? 'text-red-600' : 'text-green-600'}`}>
+                          {apiHealth.error_rate_percentage?.toFixed(1) || 0}%
+                        </p>
+                      </div>
+                      <div className="bg-gray-50 rounded p-2 text-center">
+                        <p className="text-gray-500">Response</p>
+                        <p className={`font-semibold ${(apiHealth.average_response_ms || 0) > 1000 ? 'text-yellow-600' : 'text-gray-900'}`}>
+                          {Math.round(apiHealth.average_response_ms || 0)}ms
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Rate Limit Section */}
                   <div className="mb-4 p-3 bg-gray-50 rounded-lg">

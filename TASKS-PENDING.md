@@ -1,7 +1,7 @@
 # Pending Tasks
 
-**Last Updated:** 2026-01-22
-**Current Version:** v1.0.5b
+**Last Updated:** 2026-01-23
+**Current Version:** v1.0.6
 **Current Branch:** main
 
 ---
@@ -94,11 +94,16 @@
 |---|-------|-------------|--------|
 | P3.1 | API documentation (Swagger/OpenAPI) | Swagger UI at /swagger/index.html | ✅ Done |
 | P3.2 | Add more trading pairs to JobWizard | | |
-| P3.3 | Connector health monitoring dashboard | Health metrics in Dashboard | ✅ Done |
-| P3.4 | Data quality metrics (missing candles, gaps) | Gap detection, completeness scoring, freshness tracking | ✅ Done |
+| P3.3 | Connector health monitoring dashboard | Health metrics in Dashboard, synced with Connectors page | ✅ Done |
+| P3.4 | Data quality metrics (missing candles, gaps) | Gap detection, completeness scoring, freshness tracking, background checks | ✅ Done |
 | P3.5 | Custom timeframes support | | |
 | P3.6 | WebSocket real-time updates | | |
 | P3.7 | Multi-user authentication | | |
+| P3.8 | Background gap filling | Fill missing candles without blocking UI | ✅ Done |
+| P3.9 | Historical data backfill | Fetch historical data going back months/years | ✅ Done |
+| P3.10 | Chart zoom/period controls | Period buttons (1D-All), zoom in/out, mouse wheel | ✅ Done |
+| P3.11 | JobList filters | Timeframe and Status filters, Candles column | ✅ Done |
+| P3.12 | Clickable symbols in Queue/Quality | Link to job details modal | ✅ Done |
 
 ---
 
@@ -248,6 +253,48 @@
 | P0 | 4 | 4 | 0 | 0 |
 | P1 | 4 | 4 | 0 | 0 |
 | P2 | 10 | 10 | 0 | 0 |
-| P3 | 7 | 3 | 0 | 4 |
+| P3 | 12 | 8 | 0 | 4 |
 
-**Current Focus:** P3 Tasks In Progress - P3.1, P3.3, P3.4 Complete
+**Current Focus:** P3 core features complete. Remaining: P3.2, P3.5, P3.6, P3.7
+
+---
+
+## Recent Completed Work (2026-01-23)
+
+### v1.0.6 - Data Quality, Gap Filling, Backfill & UI Improvements
+
+**Data Quality System:**
+- ✅ Background quality checks with caching
+- ✅ Gap detection and completeness scoring
+- ✅ Quality status: Excellent/Good/Fair/Poor
+- ✅ Data freshness tracking
+- ✅ Running checks display with progress
+
+**Gap Filling:**
+- ✅ Background gap-filling jobs
+- ✅ Fill first 5 gaps or all gaps
+- ✅ Job status tracking with polling
+- ✅ Prevents 504 timeout errors
+
+**Historical Backfill:**
+- ✅ Background backfill jobs
+- ✅ Configurable months back or target date
+- ✅ Batch fetching with rate limit respect
+- ✅ Progress tracking in UI
+
+**CandlestickChart Enhancements:**
+- ✅ Period selection (1D, 1W, 1M, 3M, 6M, 1Y, All)
+- ✅ Zoom controls (in/out/reset buttons)
+- ✅ Mouse wheel zoom and drag to pan
+
+**UI Improvements:**
+- ✅ JobList: Timeframe filter, Status filter, Candles column
+- ✅ Queue: Clickable symbols → job details modal
+- ✅ Data Quality: Clickable symbols → job details modal
+- ✅ Connectors: Health synced with Dashboard API
+- ✅ Fixed dropdown in Data Quality check options
+
+**Bug Fixes:**
+- ✅ 504 timeout on quality refresh (increased to 120s)
+- ✅ Health indicator mismatch between pages
+- ✅ Running checks not showing real activities

@@ -76,7 +76,8 @@ func (h *QualityHandler) GetCachedResults(c *fiber.Ctx) error {
 // GetJobQuality returns the cached quality for a specific job
 // GET /api/v1/jobs/:id/quality
 func (h *QualityHandler) GetJobQuality(c *fiber.Ctx) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Use longer timeout since it may trigger analysis for uncached jobs
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	jobID := c.Params("id")
@@ -212,7 +213,8 @@ func (h *QualityHandler) GetRecentCheckJobs(c *fiber.Ctx) error {
 // RefreshJobQuality refreshes the quality for a specific job
 // POST /api/v1/jobs/:id/quality/refresh
 func (h *QualityHandler) RefreshJobQuality(c *fiber.Ctx) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Use longer timeout for jobs with lots of data
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	jobID := c.Params("id")

@@ -2,6 +2,46 @@
 
 All notable changes to the DataCollector project will be documented in this file.
 
+## [v1.0.6] - 2026-01-23
+
+### Added
+- **Data Quality System**: Comprehensive data quality monitoring and analysis
+  - Background quality checks with progress tracking
+  - Gap detection and completeness scoring
+  - Freshness tracking and stale data alerts
+  - Quality status caching for fast dashboard display
+- **Gap Filling**: Background gap-filling to fetch missing candles
+  - Fill first 5 gaps or all gaps options
+  - Non-blocking API with job status tracking
+  - Prevents 504 timeouts on large datasets
+- **Historical Backfill**: Fetch historical data going back months/years
+  - Configurable months back or target date
+  - Background processing with progress updates
+  - Batch fetching respecting rate limits
+- **CandlestickChart Enhancements**:
+  - Period selection buttons (1D, 1W, 1M, 3M, 6M, 1Y, All)
+  - Zoom controls (zoom in, zoom out, reset)
+  - Mouse wheel zoom and drag to pan support
+- **JobList Improvements**:
+  - Timeframe filter
+  - Status filter (active, paused, stopped)
+  - Candles count column
+- **Clickable Symbols**: Symbols in Queue and Data Quality pages link to job details modal
+- **Connector Health Sync**: Connectors page now uses same health API as Dashboard
+  - Shows Uptime, Error Rate, Response Time
+  - Health status matches Dashboard (Healthy/Degraded/Unhealthy)
+
+### Fixed
+- **504 Gateway Timeout**: Increased timeouts for quality analysis (10s/30s -> 120s)
+- **Data Quality Dropdown**: Fixed exchange selector showing proper options
+- **Running Checks Display**: Now shows real progress with intermediate results
+- **Health Indicator Mismatch**: Connectors and Dashboard now show consistent health status
+
+### Changed
+- Quality checks run in background to prevent UI blocking
+- Gap fill operations are non-blocking with status polling
+- Backfill operations use background processing
+
 ## [v1.0.5b] - 2026-01-21
 
 ### Added
